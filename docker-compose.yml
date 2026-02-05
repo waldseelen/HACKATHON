@@ -1,52 +1,10 @@
-version: '3.8'
-
 # ============================================================
 # LogSense AI - Docker Compose
 # Real-time container log analysis with Gemini AI
+# Firebase Edition (Firestore + FCM)
 # ============================================================
 
 services:
-
-  # ========================
-  # INFRASTRUCTURE
-  # ========================
-
-  rabbitmq:
-    image: rabbitmq:3.12-management-alpine
-    container_name: logsense-rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: logsense
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
-    volumes:
-      - rabbitmq-data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:15-alpine
-    container_name: logsense-postgres
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: logsense
-      POSTGRES_USER: logsense
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U logsense"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
 
   # ========================
   # MONITORING UIs
@@ -82,8 +40,6 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
     volumes:
       - grafana-data:/var/lib/grafana
-    depends_on:
-      - postgres
     restart: unless-stopped
 
   # ========================
@@ -95,23 +51,14 @@ services:
       context: ./services/ingestion
       dockerfile: Dockerfile
     container_name: logsense-ingestion
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
     environment:
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: logsense
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-changeme}
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: logsense
-      POSTGRES_USER: logsense
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       LOG_LEVEL: INFO
     restart: unless-stopped
 
@@ -120,19 +67,11 @@ services:
       context: ./services/ai-analysis
       dockerfile: Dockerfile
     container_name: logsense-ai-analysis
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
+    volumes:
+      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
     environment:
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: logsense
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-changeme}
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: logsense
-      POSTGRES_USER: logsense
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       BATCH_WINDOW_SECONDS: "2"
       MAX_BATCH_SIZE: "50"
@@ -144,22 +83,11 @@ services:
       context: ./services/alert-composer
       dockerfile: Dockerfile
     container_name: logsense-alert-composer
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
     ports:
       - "8001:8001"
     environment:
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_USER: logsense
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-changeme}
-      POSTGRES_HOST: postgres
-      POSTGRES_DB: logsense
-      POSTGRES_USER: logsense
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      FIREBASE_CREDENTIALS: ${FIREBASE_CREDENTIALS_PATH:-/app/firebase-credentials.json}
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
       UPTIME_KUMA_WEBHOOK: ${UPTIME_KUMA_WEBHOOK_URL:-}
       LOG_LEVEL: INFO
     volumes:
@@ -184,8 +112,6 @@ services:
       - log-ingestion
 
 volumes:
-  rabbitmq-data:
-  postgres-data:
   uptime-kuma-data:
   grafana-data:
 

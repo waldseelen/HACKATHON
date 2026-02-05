@@ -1,40 +1,44 @@
-# 🧠 LogSense AI
+# 🧠 LogSense AI - Firebase Edition
 
-Real-time container log analysis powered by **Google Gemini AI**. Automatically categorizes errors, diagnoses root causes, recommends solutions, and sends push notifications to developers.
+Real-time container log analysis powered by **Google Gemini AI** and **Firebase**. Automatically categorizes errors, diagnoses root causes, recommends solutions, and sends push notifications to developers.
 
 ## Architecture
 
 ```
-┌─────────────────────┐     ┌─────────────┐     ┌──────────────────┐
-│  Docker Containers  │────▶│ RabbitMQ     │────▶│  Alert Composer  │
-│  (stdout/stderr)    │     │              │     │  (FCM + Kuma)    │
-└────────┬────────────┘     └──────┬───────┘     └────────┬─────────┘
-         │                         │                      │
-         ▼                         ▼                      ▼
-┌─────────────────────┐     ┌──────────────┐     ┌────────────────┐
-│  Log Ingestion      │     │ AI Analysis  │     │  📱 Mobile App │
-│  (FastAPI)          │     │ (Gemini 2.0) │     │  Push Alerts   │
-└─────────────────────┘     └──────────────┘     └────────────────┘
+┌─────────────────────┐     ┌──────────────────┐     ┌────────────────┐
+│  Docker Containers  │────▶│  Log Ingestion   │────▶│ Firebase       │
+│  (stdout/stderr)    │     │  (FastAPI)       │     │ Firestore DB   │
+└─────────────────────┘     └──────────────────┘     └────────┬───────┘
+                                                              │
+                            ┌──────────────┐                 │
+                            │ AI Analysis  │◀────────────────┘
+                            │ (Gemini 2.0) │
+                            └──────┬───────┘
                                    │
                                    ▼
                             ┌──────────────┐
-                            │ PostgreSQL   │
-                            │ (logs+alerts)│
-                            └──────────────┘
+                            │Alert Composer│
+                            │(FCM + Kuma)  │
+                            └──────┬───────┘
+                                   │
+                                   ▼
+                            ┌────────────────┐
+                            │  📱 Mobile App │
+                            │  Push Alerts   │
+                            └────────────────┘
 ```
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| **Log Ingestion** | 8000 | FastAPI – receives logs, filters ERROR/WARN, queues to RabbitMQ |
-| **AI Analysis** | — | Consumes queue → Gemini AI categorization + root cause analysis |
+| **Log Ingestion** | 8000 | FastAPI – receives logs, writes to Firestore |
+| **AI Analysis** | — | Watches Firestore → Gemini AI categorization + root cause analysis |
 | **Alert Composer** | 8001 | Dispatches FCM push notifications + Uptime Kuma webhooks |
 | **Dozzle** | 8080 | Real-time Docker log viewer UI |
 | **Uptime Kuma** | 3001 | Uptime monitoring dashboard |
 | **Grafana** | 3000 | Metrics & alert dashboards |
-| **RabbitMQ** | 15672 | Message queue management UI |
-| **PostgreSQL** | 5432 | Log & alert storage |
+| **Firebase Firestore** | Cloud | NoSQL database (logs + alerts storage) |
 
 ## Quick Start
 
@@ -42,19 +46,32 @@ Real-time container log analysis powered by **Google Gemini AI**. Automatically 
 
 - Docker & Docker Compose
 - Google Gemini API key → [Get one here](https://aistudio.google.com/apikey)
-- (Optional) Firebase project for push notifications
+- Firebase project → [Create here](https://console.firebase.google.com)
 
-### 2. Setup
+### 2. Firebase Setup
+
+1. Go to [Firebase Console](https://console.firebase.google.com)
+2. Create a new project or select existing
+3. **Firestore Database**: Enable Firestore (Native mode)
+4. **Service Account**: 
+   - Project Settings → Service Accounts
+   - Generate New Private Key
+   - Download JSON file → Save as `firebase-credentials.json` in project root
+5. **Firebase Cloud Messaging (FCM)**:
+   - Project Settings → Cloud Messaging
+   - Note your Server Key (for push notifications)
+
+### 3. Setup
 
 ```bash
 cd logsense-ai
 
 # Copy and edit environment variables
 cp .env.example .env
-# Edit .env → set GEMINI_API_KEY at minimum
+# Edit .env → set GEMINI_API_KEY and FIREBASE_PROJECT_ID
 ```
 
-### 3. Start
+### 4. Start
 
 ```bash
 # Start all services
@@ -64,13 +81,10 @@ docker-compose up -d
 docker-compose logs -f ai-analysis alert-composer
 ```
 
-### 4. Test
+### 5. Test
 
 ```bash
-# Start the test log generator (10 logs/second)
-docker-compose --profile test up log-generator
-
-# Or send a single log manually
+# Send a test log
 curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{
@@ -80,19 +94,11 @@ curl -X POST http://localhost:8000/ingest \
   }'
 ```
 
-### 5. View Results
+### 6. View Results
 
-```bash
-# Recent alerts (AI analysis results)
-curl http://localhost:8000/alerts | python -m json.tool
-
-# Recent raw logs
-curl http://localhost:8000/logs/recent | python -m json.tool
-
-# Or query PostgreSQL directly
-docker exec -it logsense-postgres psql -U logsense -d logsense -c \
-  "SELECT id, category, severity, confidence, summary FROM alerts ORDER BY created_at DESC LIMIT 5;"
-```
+Check Firestore Collections in Firebase Console:
+- `logs` collection - Raw log entries
+- `alerts` collection - AI analysis results
 
 ## API Endpoints
 

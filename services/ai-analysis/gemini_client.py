@@ -54,13 +54,12 @@ class GeminiAnalyzer:
 
     def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash"):
         genai.configure(api_key=api_key)
-        self._model = genai.GenerativeModel(
-            model_name,
-            system_instruction=(
-                "You are a senior SRE and DevOps expert. "
-                "Analyze container logs concisely. "
-                "Always respond with valid JSON only — no markdown, no explanation."
-            ),
+        self.model_name = model_name
+        self._model = genai.GenerativeModel(model_name)
+        self.system_instruction = (
+            "You are a senior SRE and DevOps expert. "
+            "Analyze container logs concisely. "
+            "Always respond with valid JSON only — no markdown, no explanation."
         )
         logger.info(f"Gemini model initialized: {model_name}")
 
