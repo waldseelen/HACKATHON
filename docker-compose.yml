@@ -115,6 +115,7 @@ volumes:
   uptime-kuma-data:
   grafana-data:
 
+
 networks:
   default:
     name: logsense-network

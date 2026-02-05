@@ -53,7 +53,7 @@ Real-time container log analysis powered by **Google Gemini AI** and **Firebase*
 1. Go to [Firebase Console](https://console.firebase.google.com)
 2. Create a new project or select existing
 3. **Firestore Database**: Enable Firestore (Native mode)
-4. **Service Account**: 
+4. **Service Account**:
    - Project Settings → Service Accounts
    - Generate New Private Key
    - Download JSON file → Save as `firebase-credentials.json` in project root
