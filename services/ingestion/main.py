@@ -1,11 +1,10 @@
 """
-LogSense AI - Log Ingestion Service
-====================================
+LogSense AI - Log Ingestion Service (Firebase Edition)
+=======================================================
 FastAPI service that:
   1. Receives logs via POST /ingest endpoint
   2. Streams Docker container logs (ERROR/WARN only)
-  3. Normalizes and publishes to RabbitMQ
-  4. Stores raw logs in PostgreSQL
+  3. Normalizes and stores to Firebase Firestore
 """
 
 import asyncio
@@ -15,25 +14,19 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-import aio_pika
-import asyncpg
+import firebase_admin
+from firebase_admin import credentials, firestore
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 
 from log_parser import LogParser
-from rabbitmq_client import RabbitMQPublisher
 
 # ── Settings ──────────────────────────────────────────────
 
 class Settings(BaseSettings):
-    rabbitmq_host: str = "rabbitmq"
-    rabbitmq_user: str = "logsense"
-    rabbitmq_password: str = "changeme"
-    postgres_host: str = "postgres"
-    postgres_db: str = "logsense"
-    postgres_user: str = "logsense"
-    postgres_password: str = "changeme"
+    firebase_credentials_path: str = "/app/firebase-credentials.json"
+    firebase_project_id: str = "montgomery-415113"
     log_level: str = "INFO"
 
 settings = Settings()
@@ -45,34 +38,27 @@ logger = logging.getLogger("ingestion")
 
 # ── Shared state ──────────────────────────────────────────
 
-rabbitmq: Optional[RabbitMQPublisher] = None
-db_pool: Optional[asyncpg.Pool] = None
+db: Optional[firestore.AsyncClient] = None
 docker_task: Optional[asyncio.Task] = None
 
 # ── Lifespan ──────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global rabbitmq, db_pool, docker_task
+    global db, docker_task
 
     # Startup
-    logger.info("Connecting to RabbitMQ…")
-    rabbitmq = RabbitMQPublisher(
-        host=settings.rabbitmq_host,
-        user=settings.rabbitmq_user,
-        password=settings.rabbitmq_password,
-    )
-    await rabbitmq.connect()
-
-    logger.info("Connecting to PostgreSQL…")
-    db_pool = await asyncpg.create_pool(
-        host=settings.postgres_host,
-        database=settings.postgres_db,
-        user=settings.postgres_user,
-        password=settings.postgres_password,
-        min_size=2,
-        max_size=10,
-    )
+    logger.info("Initializing Firebase...")
+    try:
+        cred = credentials.Certificate(settings.firebase_credentials_path)
+        firebase_admin.initialize_app(cred, {
+            'projectId': settings.firebase_project_id,
+        })
+        db = firestore.AsyncClient()
+        logger.info("✓ Firebase Firestore connected")
+    except Exception as e:
+        logger.error(f"✗ Firebase initialization failed: {e}")
+        raise
 
     # Start background Docker log streamer
     docker_task = asyncio.create_task(stream_docker_logs())
@@ -83,16 +69,12 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if docker_task:
         docker_task.cancel()
-    if db_pool:
-        await db_pool.close()
-    if rabbitmq:
-        await rabbitmq.close()
     logger.info("Ingestion service stopped")
 
 
 app = FastAPI(
-    title="LogSense AI – Log Ingestion",
-    version="0.1.0",
+    title="LogSense AI – Log Ingestion (Firebase)",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -109,8 +91,8 @@ class LogBatchRequest(BaseModel):
 
 class IngestResponse(BaseModel):
     status: str
-    log_id: Optional[int] = None
-    queued: bool = False
+    log_id: Optional[str] = None
+    stored: bool = False
 
 # ── Routes ────────────────────────────────────────────────
 
@@ -118,30 +100,25 @@ class IngestResponse(BaseModel):
 async def health():
     return {
         "status": "healthy",
-        "service": "log-ingestion",
-        "rabbitmq": rabbitmq is not None and rabbitmq.connected,
-        "postgres": db_pool is not None,
+        "service": "log-ingestion-firebase",
+        "firestore": db is not None,
     }
 
 
 @app.post("/ingest", response_model=IngestResponse)
 async def ingest_log(entry: LogEntry):
-    """Receive a single log line, filter/parse, store and queue."""
+    """Receive a single log line, filter/parse, store in Firestore."""
     parser = LogParser()
 
     if not parser.should_process(entry.log):
-        return IngestResponse(status="skipped", queued=False)
+        return IngestResponse(status="skipped", stored=False)
 
     parsed = parser.parse(entry.log, container_name=entry.container)
 
-    # Store in PostgreSQL
+    # Store in Firestore
     log_id = await _store_log(parsed)
-    parsed["log_id"] = log_id
 
-    # Publish to RabbitMQ
-    await rabbitmq.publish_log(parsed)
-
-    return IngestResponse(status="ingested", log_id=log_id, queued=True)
+    return IngestResponse(status="ingested", log_id=log_id, stored=True)
 
 
 @app.post("/ingest/batch")
@@ -156,9 +133,7 @@ async def ingest_batch(batch: LogBatchRequest):
             continue
 
         parsed = parser.parse(entry.log, container_name=entry.container)
-        log_id = await _store_log(parsed)
-        parsed["log_id"] = log_id
-        await rabbitmq.publish_log(parsed)
+        await _store_log(parsed)
         results["ingested"] += 1
 
     return results
@@ -166,58 +141,39 @@ async def ingest_batch(batch: LogBatchRequest):
 
 @app.get("/logs/recent")
 async def recent_logs(limit: int = 20):
-    """Get most recent ingested logs."""
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, ingested_at, container_name, service_name,
-                   severity, LEFT(raw_log, 200) AS raw_log_preview
-            FROM logs
-            ORDER BY ingested_at DESC
-            LIMIT $1
-            """,
-            limit,
-        )
-    return [dict(r) for r in rows]
+    """Get most recent ingested logs from Firestore."""
+    logs_ref = db.collection('logs').order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
+    docs = await logs_ref.get()
+
+    return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
 
 @app.get("/alerts")
 async def get_alerts(limit: int = 20):
     """Get most recent alerts from AI analysis."""
-    async with db_pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, created_at, category, severity, confidence,
-                   summary, root_cause, solution, action_required,
-                   notification_count
-            FROM alerts
-            ORDER BY created_at DESC
-            LIMIT $1
-            """,
-            limit,
-        )
-    return [dict(r) for r in rows]
+    alerts_ref = db.collection('alerts').order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
+    docs = await alerts_ref.get()
+
+    return [{"id": doc.id, **doc.to_dict()} for doc in docs]
 
 # ── Helpers ───────────────────────────────────────────────
 
-async def _store_log(parsed: dict) -> int:
-    """Insert a parsed log into PostgreSQL and return its id."""
-    async with db_pool.acquire() as conn:
-        log_id = await conn.fetchval(
-            """
-            INSERT INTO logs (container_name, service_name, severity,
-                              raw_log, normalized, fingerprint)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING id
-            """,
-            parsed["container"],
-            parsed["service"],
-            parsed["severity"],
-            parsed["raw_log"],
-            json.dumps(parsed),
-            parsed.get("fingerprint"),
-        )
-    return log_id
+async def _store_log(parsed: dict) -> str:
+    """Insert a parsed log into Firestore and return its document ID."""
+    log_doc = {
+        "container": parsed["container"],
+        "service": parsed["service"],
+        "severity": parsed["severity"],
+        "raw_log": parsed["raw_log"],
+        "normalized": json.dumps(parsed),
+        "fingerprint": parsed.get("fingerprint"),
+        "created_at": firestore.SERVER_TIMESTAMP,
+        "processed": False,  # AI analysis flag
+    }
+
+    _, doc_ref = await db.collection('logs').add(log_doc)
+    logger.debug(f"Stored log: {doc_ref.id}")
+    return doc_ref.id
 
 # ── Docker log streamer (background) ─────────────────────
 
@@ -249,9 +205,7 @@ async def stream_docker_logs():
                         ):
                             if parser.should_process(line):
                                 parsed = parser.parse(line, container_name=name)
-                                log_id = await _store_log(parsed)
-                                parsed["log_id"] = log_id
-                                await rabbitmq.publish_log(parsed)
+                                await _store_log(parsed)
                     except Exception as e:
                         logger.warning(f"Stream error [{name}]: {e}")
 
