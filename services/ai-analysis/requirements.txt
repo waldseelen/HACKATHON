@@ -1,0 +1,6 @@
+aio-pika==9.3.1
+asyncpg==0.29.0
+google-generativeai==0.3.2
+pydantic==2.5.3
+pydantic-settings==2.1.0
+tenacity==8.2.3

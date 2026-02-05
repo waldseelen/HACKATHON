@@ -1,0 +1,6 @@
+aio-pika==9.3.1
+asyncpg==0.29.0
+firebase-admin==6.4.0
+httpx==0.26.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
