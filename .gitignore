@@ -28,6 +28,13 @@ docker-compose.override.yml
 models/
 *.gguf
 
+# Mobile
+mobile/node_modules/
+mobile/.expo/
+
+# Firebase (keep credentials local)
+firebase-credentials.json
+
 # Firebase credentials
 firebase-credentials.json
 serviceAccountKey.json

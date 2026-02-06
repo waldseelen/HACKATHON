@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "LogSense AI",
+    "slug": "logsense-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0a0a0a"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0a0a"
+      },
+      "googleServicesFile": "./google-services.json",
+      "useNextNotificationsApi": true
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.logsense.ai"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#FF3B30",
+          "defaultChannel": "alerts"
+        }
+      ],
+      "expo-asset"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      }
+    }
+  }
+}

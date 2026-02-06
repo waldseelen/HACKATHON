@@ -1,14 +1,12 @@
 # ============================================================
 # LogSense AI v2 – Docker Compose
 # Optimized single-backend architecture
-# Log → DeepSeek AI → Push Notification → Expo Go Mobile App
 # ============================================================
 
 services:
 
   # ========================
   # BACKEND (All-in-one)
-  # Ingestion + AI Analysis + Push Notification
   # ========================
   backend:
     build:
@@ -23,16 +21,14 @@ services:
     environment:
       FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-r1-0528:free}
-      BATCH_WINDOW_SECONDS: "30"
-      MAX_BATCH_SIZE: "3"
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      BATCH_WINDOW_SECONDS: "3"
+      MAX_BATCH_SIZE: "10"
       ENABLE_DOCKER_WATCHER: "true"
-      HOST_IP: ${HOST_IP:-10.200.124.242}
-      LOG_LEVEL: DEBUG
+      LOG_LEVEL: INFO
     restart: unless-stopped
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -40,12 +36,11 @@ services:
 
   # ========================
   # TEST LOG GENERATOR
-  # Run with: docker compose --profile test up
   # ========================
   log-generator:
     build:
       context: ./test
-      dockerfile: Dockerfile.v2
+      dockerfile: Dockerfile
     container_name: logsense-test-generator
     environment:
       INGESTION_URL: http://backend:8000
@@ -56,7 +51,3 @@ services:
     profiles:
       - test
     restart: unless-stopped
-
-networks:
-  default:
-    name: logsense-network

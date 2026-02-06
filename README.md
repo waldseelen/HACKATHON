@@ -1,103 +1,86 @@
-# 🧠 LogSense AI - Firebase Edition
+# LogSense AI v2
 
-Real-time container log analysis powered by **Google Gemini AI** and **Firebase**. Automatically categorizes errors, diagnoses root causes, recommends solutions, and sends push notifications to developers.
+Docker container log'larından ERROR/WARN yakalayıp, Gemini AI ile analiz edip, Expo Go mobil uygulamaya push notification gönderen sistem.
 
-## Architecture
+## Mimari
 
 ```
-┌─────────────────────┐     ┌──────────────────┐     ┌────────────────┐
-│  Docker Containers  │────▶│  Log Ingestion   │────▶│ Firebase       │
-│  (stdout/stderr)    │     │  (FastAPI)       │     │ Firestore DB   │
-└─────────────────────┘     └──────────────────┘     └────────┬───────┘
-                                                              │
-                            ┌──────────────┐                 │
-                            │ AI Analysis  │◀────────────────┘
-                            │ (Gemini 2.0) │
-                            └──────┬───────┘
-                                   │
-                                   ▼
-                            ┌──────────────┐
-                            │Alert Composer│
-                            │(FCM + Kuma)  │
-                            └──────┬───────┘
-                                   │
-                                   ▼
-                            ┌────────────────┐
-                            │  📱 Mobile App │
-                            │  Push Alerts   │
-                            └────────────────┘
+┌─────────────────────┐     ┌────────────────────────┐     ┌──────────────┐
+│  Docker Containers  │────▶│  Backend (FastAPI)      │────▶│  Firebase    │
+│  (stdout/stderr)    │     │  • Log Ingestion        │     │  Firestore   │
+└─────────────────────┘     │  • Gemini AI Analysis   │     └──────┬───────┘
+                            │  • Push Notification    │            │
+       ┌───────────┐        └────────────────────────┘            │
+       │ Test Gen  │────▶  POST /ingest                           │
+       └───────────┘                                              ▼
+                                                          ┌──────────────┐
+                                                          │ Expo Push API│
+                                                          └──────┬───────┘
+                                                                 │
+                                                                 ▼
+                                                          ┌──────────────┐
+                                                          │ 📱 Expo Go   │
+                                                          │ Mobile App   │
+                                                          └──────────────┘
 ```
 
-## Services
+## Hızlı Başlangıç
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **Log Ingestion** | 8000 | FastAPI – receives logs, writes to Firestore |
-| **AI Analysis** | — | Watches Firestore → Gemini AI categorization + root cause analysis |
-| **Alert Composer** | 8001 | Dispatches FCM push notifications + Uptime Kuma webhooks |
-| **Dozzle** | 8080 | Real-time Docker log viewer UI |
-| **Uptime Kuma** | 3001 | Uptime monitoring dashboard |
-| **Grafana** | 3000 | Metrics & alert dashboards |
-| **Firebase Firestore** | Cloud | NoSQL database (logs + alerts storage) |
-
-## Quick Start
-
-### 1. Prerequisites
-
-- Docker & Docker Compose
-- Google Gemini API key → [Get one here](https://aistudio.google.com/apikey)
-- Firebase project → [Create here](https://console.firebase.google.com)
-
-### 2. Firebase Setup
-
-1. Go to [Firebase Console](https://console.firebase.google.com)
-2. Create a new project or select existing
-3. **Firestore Database**: Enable Firestore (Native mode)
-4. **Service Account**:
-   - Project Settings → Service Accounts
-   - Generate New Private Key
-   - Download JSON file → Save as `firebase-credentials.json` in project root
-5. **Firebase Cloud Messaging (FCM)**:
-   - Project Settings → Cloud Messaging
-   - Note your Server Key (for push notifications)
-
-### 3. Setup
+### 1. Backend (Docker)
 
 ```bash
-cd logsense-ai
+# Backend'i başlat
+docker compose up -d --build
 
-# Copy and edit environment variables
-cp .env.example .env
-# Edit .env → set GEMINI_API_KEY and FIREBASE_PROJECT_ID
+# Log'ları izle
+docker compose logs -f backend
+
+# Test log generator'ı çalıştır
+docker compose --profile test up -d
 ```
 
-### 4. Start
+### 2. Mobil Uygulama (Expo Go)
 
 ```bash
-# Start all services
-docker-compose up -d
-
-# Watch logs
-docker-compose logs -f ai-analysis alert-composer
+cd mobile
+npm install
+npx expo start
 ```
 
-### 5. Test
+Expo Go uygulamasını telefonuna indir, QR kodu tara.
+
+### 3. Test İsteği Gönder
 
 ```bash
-# Send a test log
 curl -X POST http://localhost:8000/ingest \
   -H "Content-Type: application/json" \
   -d '{
-    "log": "[2026-02-05 10:30:15] ERROR api-gateway: Database connection timeout after 30s",
+    "log": "[2026-02-06 10:30:15] ERROR api-gateway: Database connection timeout after 30s",
     "source": "manual",
     "container": "api-gateway-1"
   }'
 ```
 
-### 6. View Results
+## API Endpoints
 
-Check Firestore Collections in Firebase Console:
-- `logs` collection - Raw log entries
+| Endpoint | Method | Açıklama |
+|----------|--------|----------|
+| `/health` | GET | Sistem sağlık kontrolü |
+| `/ingest` | POST | Tek log gönder |
+| `/ingest/batch` | POST | Toplu log gönder |
+| `/alerts` | GET | Son alertleri listele (mobil için) |
+| `/alerts/{id}` | GET | Alert detayı |
+| `/logs/recent` | GET | Son loglar |
+| `/register-token` | POST | Expo push token kaydet |
+| `/stats` | GET | Dashboard istatistikleri |
+
+## Gereksinimler
+
+- Docker & Docker Compose
+- Node.js 18+ (mobil için)
+- Expo Go (telefon uygulaması)
+- Gemini API Key
+- Firebase projesi (Firestore + FCM)
 - `alerts` collection - AI analysis results
 
 ## API Endpoints
@@ -116,8 +99,8 @@ Check Firestore Collections in Firebase Console:
 
 ```json
 {
-  "log": "[2026-02-05 14:23:45] ERROR api-gateway: Connection pool exhausted",
-  "source": "fluentbit",
+  "log": "[2026-02-06 14:23:45] ERROR api-gateway: Connection pool exhausted",
+  "source": "test",
   "container": "api-gateway-1"
 }
 ```
@@ -127,8 +110,8 @@ Check Firestore Collections in Firebase Console:
 ```json
 {
   "status": "ingested",
-  "log_id": 42,
-  "queued": true
+  "log_id": "abc123",
+  "stored": true
 }
 ```
 
@@ -136,62 +119,51 @@ Check Firestore Collections in Firebase Console:
 
 ```json
 {
-  "id": "a1b2c3d4-...",
+  "id": "abc123",
   "category": "database",
   "severity": "high",
   "confidence": 0.92,
   "summary": "Database connection pool exhausted due to query backlog",
-  "root_cause": "Slow queries are holding connections longer than expected, causing the pool to fill up. The max pool size (20) is insufficient for current traffic.",
-  "solution": "Immediate: Restart the service to reset connections. Long-term: Optimize slow queries, increase pool size to 50, add connection timeout.",
+  "root_cause": "Slow queries holding connections, pool size insufficient.",
+  "solution": "Restart service to reset. Long-term: optimize queries, increase pool.",
   "action_required": true
 }
 ```
 
-## Monitoring
-
-- **Dozzle**: http://localhost:8080 — Live container log viewer
-- **Uptime Kuma**: http://localhost:3001 — Service uptime monitoring
-- **Grafana**: http://localhost:3000 — Custom dashboards (admin/admin)
-- **RabbitMQ**: http://localhost:15672 — Queue management (logsense/password)
-
-## Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GEMINI_API_KEY` | ✅ | Google Gemini API key |
-| `RABBITMQ_PASSWORD` | ✅ | RabbitMQ password |
-| `POSTGRES_PASSWORD` | ✅ | PostgreSQL password |
-| `UPTIME_KUMA_WEBHOOK_URL` | ❌ | Uptime Kuma Push Monitor URL |
-| `FIREBASE_CREDENTIALS_PATH` | ❌ | Path to Firebase service account JSON |
-| `GRAFANA_PASSWORD` | ❌ | Grafana admin password (default: admin) |
-
-## Project Structure
+## Proje Yapısı
 
 ```
-logsense-ai/
-├── docker-compose.yml          # All services orchestration
-├── .env.example                # Environment template
-├── database/
-│   └── init.sql                # PostgreSQL schema
-├── services/
-│   ├── ingestion/              # Log Ingestion Service
-│   │   ├── main.py             # FastAPI app + Docker log streamer
-│   │   ├── log_parser.py       # Parsing + filtering + fingerprinting
-│   │   └── rabbitmq_client.py  # RabbitMQ publisher
-│   ├── ai-analysis/            # AI Analysis Service
-│   │   ├── main.py             # RabbitMQ consumer + orchestrator
-│   │   ├── gemini_client.py    # Gemini API client + fallback
-│   │   ├── deduplication.py    # Log dedup + time-window batching
-│   │   └── models.py           # Pydantic models
-│   └── alert-composer/         # Alert Composer Service
-│       ├── main.py             # RabbitMQ consumer + dispatcher
-│       ├── fcm_client.py       # Firebase Cloud Messaging
-│       └── uptime_kuma.py      # Uptime Kuma webhook
-├── test/
-│   ├── log_generator.py        # High-volume test log generator
-│   └── Dockerfile.generator
-└── grafana/
-    └── dashboards/
+HACKATHON/
+├── docker-compose.yml          # Tek backend + test generator
+├── .env                        # Environment variables
+├── firebase-credentials.json   # Firebase service account
+├── backend/                    # FastAPI monolith
+│   ├── main.py                 # API + background worker
+│   ├── config.py               # Settings
+│   ├── models.py               # Pydantic models
+│   ├── log_parser.py           # Log parsing + fingerprinting
+│   ├── gemini_client.py        # Gemini AI client
+│   ├── firebase_service.py     # Firestore operations
+│   ├── push_service.py         # Expo push notifications
+│   ├── Dockerfile
+│   └── requirements.txt
+├── mobile/                     # Expo Go React Native app
+│   ├── App.js                  # Entry point + navigation
+│   ├── app.json                # Expo config
+│   ├── package.json
+│   └── src/
+│       ├── screens/
+│       │   ├── AlertsScreen.js
+│       │   └── AlertDetailScreen.js
+│       ├── components/
+│       │   └── AlertCard.js
+│       ├── services/
+│       │   └── api.js
+│       └── utils/
+│           └── notifications.js
+└── test/
+    ├── log_generator_v2.py
+    └── Dockerfile.v2
 ```
 
 ## License
