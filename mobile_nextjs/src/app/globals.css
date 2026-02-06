@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --color-brand: #6C63FF;
+    --color-fatal: #FF3B30;
+    --color-critical: #FF9500;
+    --color-warn: #FFCC00;
+    --app-max-w: 480px;
+    --theme-bg: #08090d;
+    --theme-surface-100: #0f1015;
+    --theme-surface-200: #16171e;
+    --theme-brand: #6C63FF;
+    --theme-watermark: #6C63FF;
+}
+
+* {
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    @apply text-white font-sans antialiased;
+    background-color: var(--theme-bg);
+    overscroll-behavior-y: contain;
+}
+
+/* ── Mobile shell ────────────────────────────────────── */
+.app-shell {
+    max-width: var(--app-max-w);
+    margin: 0 auto;
+    min-height: 100dvh;
+    position: relative;
+    overflow: hidden;
+}
+
+/* ── Scrollbar ───────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 3px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 2px;
+}
+
+/* ── Skeleton shimmer ────────────────────────────────── */
+.skeleton {
+    background: linear-gradient(90deg, #111 25%, #1a1a1a 50%, #111 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+/* ── Code watermark background ───────────────────────── */
+.watermark-bg {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+    opacity: 0.03;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 2.2;
+    color: var(--theme-watermark);
+    white-space: pre;
+    user-select: none;
+}
+
+/* ── Safe areas ──────────────────────────────────────── */
+.safe-top {
+    padding-top: env(safe-area-inset-top);
+}
+
+.safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ── Animations ──────────────────────────────────────── */
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(12px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse-dot {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* ── Severity indicator glow ─────────────────────────── */
+.glow-fatal {
+    box-shadow: 0 0 12px rgba(255, 59, 48, 0.25);
+}
+
+.glow-critical {
+    box-shadow: 0 0 12px rgba(255, 149, 0, 0.25);
+}
+
+.glow-warn {
+    box-shadow: 0 0 8px rgba(255, 204, 0, 0.15);
+}

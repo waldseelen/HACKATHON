@@ -1,14 +1,14 @@
 # ============================================================
 # LogSense AI v2 – Docker Compose
 # Optimized single-backend architecture
-# Log → DeepSeek AI → Push Notification → Expo Go Mobile App
+# Log → DeepSeek AI → Push Notification → Next.js Mobile App
 # ============================================================
 
 services:
 
   # ========================
   # BACKEND (All-in-one)
-  # Ingestion + AI Analysis + Push Notification
+  # Ingestion + AI Analysis + Push Notification + SSE
   # ========================
   backend:
     build:
@@ -37,6 +37,24 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # ========================
+  # FRONTEND (Next.js)
+  # Mobile-first web app
+  # ========================
+  frontend:
+    build:
+      context: ./mobile_nextjs
+      dockerfile: Dockerfile
+    container_name: logsense-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
   # ========================
   # TEST LOG GENERATOR

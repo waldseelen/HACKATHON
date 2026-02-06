@@ -222,6 +222,41 @@ async def get_active_push_tokens() -> List[str]:
     return [t for doc in docs if (data := doc.to_dict() or {}) and (t := data.get("token"))]
 
 
+# ── Chat operations ──────────────────────────────────────
+
+async def store_chat_message(alert_id: str, role: str, content: str) -> str:
+    """Store a chat message for an alert. Returns document ID."""
+    db = _get_db()
+    doc = {
+        "alert_id": alert_id,
+        "role": role,
+        "content": content,
+        "created_at": firestore.SERVER_TIMESTAMP,
+    }
+    _, ref = await db.collection("chat_messages").add(doc)
+    return ref.id
+
+
+async def get_chat_history(alert_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Get chat history for a specific alert, ordered by time."""
+    db = _get_db()
+    query = (
+        db.collection("chat_messages")
+        .where("alert_id", "==", alert_id)
+        .order_by("created_at")
+        .limit(limit)
+    )
+    docs = await query.get()  # type: ignore[misc]
+    result = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        if data.get("created_at"):
+            data["created_at"] = data["created_at"].isoformat()
+        data["id"] = doc.id
+        result.append(data)
+    return result
+
+
 # ── Cleanup operations ───────────────────────────────────
 
 async def delete_all_documents(collection_name: str) -> int:

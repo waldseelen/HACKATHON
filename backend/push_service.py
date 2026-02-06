@@ -45,7 +45,7 @@ async def send_push_notifications(
             "sound": "default",
             "priority": "high" if severity in ("critical", "high") else "default",
             "title": f"{emoji} {severity.upper()}: {category}",
-            "body": alert_data.get("summary", "New alert detected")[:200],
+            "body": (alert_data.get("title") or alert_data.get("summary", "New alert detected"))[:200],
             "data": {
                 "alertId": alert_id,
                 "category": category,
@@ -55,6 +55,10 @@ async def send_push_notifications(
                 "solution": alert_data.get("solution", ""),
                 "confidence": str(alert_data.get("confidence", 0)),
                 "action_required": str(alert_data.get("action_required", True)),
+                "title": alert_data.get("title", ""),
+                "dedupe_key": alert_data.get("dedupe_key", ""),
+                "impact": alert_data.get("impact", ""),
+                "context_for_chat": alert_data.get("context_for_chat", ""),
             },
             "channelId": "alerts",
         }

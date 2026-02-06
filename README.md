@@ -1,6 +1,6 @@
 # LogSense AI v2
 
-Docker container log'larından ERROR/WARN yakalayıp, Gemini AI ile analiz edip, Expo Go mobil uygulamaya push notification gönderen sistem.
+Docker container log'larından ERROR/WARN yakalayıp, Deepseek AI ile analiz edip, Expo Go mobil uygulamaya push notification gönderen sistem.
 
 ## Mimari
 
@@ -8,7 +8,7 @@ Docker container log'larından ERROR/WARN yakalayıp, Gemini AI ile analiz edip,
 ┌─────────────────────┐     ┌────────────────────────┐     ┌──────────────┐
 │  Docker Containers  │────▶│  Backend (FastAPI)      │────▶│  Firebase    │
 │  (stdout/stderr)    │     │  • Log Ingestion        │     │  Firestore   │
-└─────────────────────┘     │  • Gemini AI Analysis   │     └──────┬───────┘
+└─────────────────────┘     │  • Deepseek AI Analysis   │     └──────┬───────┘
                             │  • Push Notification    │            │
        ┌───────────┐        └────────────────────────┘            │
        │ Test Gen  │────▶  POST /ingest                           │
@@ -142,7 +142,6 @@ HACKATHON/
 │   ├── config.py               # Settings
 │   ├── models.py               # Pydantic models
 │   ├── log_parser.py           # Log parsing + fingerprinting
-│   ├── gemini_client.py        # Gemini AI client
 │   ├── firebase_service.py     # Firestore operations
 │   ├── push_service.py         # Expo push notifications
 │   ├── Dockerfile

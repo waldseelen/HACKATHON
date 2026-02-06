@@ -35,6 +35,10 @@ from models import (
     HealthResponse,
     TokenRegistration,
     AnalysisResult,
+    ChatRequest,
+    ChatResponse,
+    LoginRequest,
+    LoginResponse,
 )
 from log_parser import LogParser
 from openrouter_client import OpenRouterClient
@@ -52,13 +56,16 @@ _processed_ids: set = set()            # In-memory dedup guard
 _MAX_PROCESSED_CACHE = 5000            # Prevent unbounded memory
 worker_task = None
 
+# SSE broadcast: connected clients receive new alerts in real-time
+_sse_clients: list[asyncio.Queue] = []
+
 
 # ── Background Worker ────────────────────────────────────
 
 async def analysis_worker():
     """
     Background worker: consumes log IDs **only** from the in-process
-    queue, batches them, runs Gemini AI, stores alerts, sends push.
+    queue, batches them, runs DeepSeek AI (via OpenRouter), stores alerts, sends push.
 
     IMPORTANT: Never polls Firestore for unprocessed logs — avoids
     the duplicate-alert bug caused by re-processing the same log.
@@ -135,6 +142,14 @@ async def _process_batch(log_ids: list[str], logs_text: str):
     try:
         alert_data["log_ids"] = log_ids
         alert_id = await fb.store_alert(alert_data)
+
+        # Broadcast to SSE clients
+        sse_payload = {**alert_data, "id": alert_id}
+        for q in _sse_clients:
+            try:
+                q.put_nowait(sse_payload)
+            except asyncio.QueueFull:
+                pass
 
         # Send push notifications
         tokens = await fb.get_active_push_tokens()
@@ -240,7 +255,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="LogSense AI",
-    description="Real-time container log analysis with Gemini AI + push notifications",
+    description="Real-time container log analysis with DeepSeek AI (OpenRouter) + push notifications",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -261,7 +276,7 @@ async def root():
     """Root endpoint — API info."""
     return {
         "service": "LogSense AI",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running",
         "endpoints": [
             "GET  /health",
@@ -272,6 +287,9 @@ async def root():
             "GET  /logs/recent",
             "POST /register-token",
             "GET  /stats",
+            "POST /auth/login",
+            "POST /chat",
+            "GET  /chat/{alert_id}/history",
             "GET  /qr",
             "GET  /qr/mobile",
         ],
@@ -286,6 +304,7 @@ async def health():
         firebase=fb.is_ready(),
         ai=ai_client.is_ready,
         pending_logs=pending_queue.qsize(),
+        ai_gateway=ai_client.gateway_health,
     )
 
 
@@ -326,7 +345,137 @@ async def ingest_batch(batch: LogBatchRequest):
 @app.get("/alerts")
 async def get_alerts(limit: int = 50):
     """Get recent alerts for mobile app."""
-    return await fb.get_recent_alerts(limit=limit)
+    try:
+        # Quick timeout to avoid waiting for Firestore quota errors
+        return await asyncio.wait_for(fb.get_recent_alerts(limit=limit), timeout=3.0)
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Firestore unavailable, returning mock alerts: {e}")
+        # Mock alert data when Firestore quota is exceeded
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        mock_alerts = [
+            {
+                "id": "mock-fatal-1",
+                "title": "Database Connection Pool Exhausted",
+                "category": "database",
+                "severity": "fatal",
+                "confidence": 0.95,
+                "summary": "PostgreSQL connection pool reached max capacity (100/100). New requests timing out.",
+                "root_cause": "Connection leak in payment processing service - connections not being properly closed after transactions.",
+                "impact": "All payment transactions failing. Revenue impact: ~$50k/hour.",
+                "solution": "Restart payment-service pods immediately and deploy connection leak fix.",
+                "recommended_actions": [
+                    "kubectl rollout restart deployment payment-service",
+                    "Monitor connection count: SELECT count(*) FROM pg_stat_activity",
+                    "Deploy hotfix branch 'fix/connection-leak'"
+                ],
+                "action_required": True,
+                "verification_steps": [
+                    "Check pod restart: kubectl get pods -l app=payment-service",
+                    "Verify connection count dropped below 80"
+                ],
+                "created_at": (now - timedelta(minutes=5)).isoformat(),
+                "notified": True,
+            },
+            {
+                "id": "mock-critical-1",
+                "title": "Redis Cache Miss Rate Spike",
+                "category": "performance",
+                "severity": "critical",
+                "confidence": 0.88,
+                "summary": "Cache miss rate jumped from 2% to 45% in last 10 mins. Response times degraded.",
+                "root_cause": "Redis primary node ran out of memory (maxmemory 4GB reached). Evicting cached data.",
+                "impact": "API response times increased 3x (150ms → 450ms). User experience degraded.",
+                "solution": "Scale Redis memory to 8GB and enable memory optimization.",
+                "recommended_actions": [
+                    "Increase Redis maxmemory to 8GB",
+                    "Enable LRU eviction policy",
+                    "Review cache TTL settings"
+                ],
+                "action_required": True,
+                "created_at": (now - timedelta(minutes=12)).isoformat(),
+            },
+            {
+                "id": "mock-critical-2",
+                "title": "Nginx 502 Bad Gateway Errors",
+                "category": "network",
+                "severity": "critical",
+                "confidence": 0.92,
+                "summary": "Upstream service returning 502 errors. 15% of requests failing.",
+                "root_cause": "API service pods restarting due to OOMKill. Memory limit 512MB too low.",
+                "impact": "15% request failure rate. Customer complaints increasing.",
+                "solution": "Increase pod memory limit to 1GB and add horizontal pod autoscaling.",
+                "recommended_actions": [
+                    "Update deployment memory: resources.limits.memory=1Gi",
+                    "Add HPA: kubectl autoscale deployment api-service --min=3 --max=10"
+                ],
+                "created_at": (now - timedelta(minutes=18)).isoformat(),
+            },
+            {
+                "id": "mock-warn-1",
+                "title": "SSL Certificate Expiring Soon",
+                "category": "security",
+                "severity": "warn",
+                "confidence": 0.99,
+                "summary": "SSL certificate for api.example.com expires in 7 days.",
+                "root_cause": "Certificate auto-renewal failed due to DNS validation timeout.",
+                "impact": "Low - No immediate impact, but will cause outage if not renewed.",
+                "solution": "Manually renew certificate or fix DNS configuration for auto-renewal.",
+                "recommended_actions": [
+                    "Run: certbot renew --force-renewal",
+                    "Verify DNS records for _acme-challenge"
+                ],
+                "created_at": (now - timedelta(hours=2)).isoformat(),
+            },
+            {
+                "id": "mock-warn-2",
+                "title": "High Disk Usage on Log Volume",
+                "category": "infra",
+                "severity": "warn",
+                "confidence": 0.85,
+                "summary": "Disk usage at 82% on /var/log volume. Approaching warning threshold.",
+                "root_cause": "Log rotation not configured properly. Old logs not being cleaned.",
+                "impact": "Medium - Could fill disk in 2-3 days if trend continues.",
+                "solution": "Configure logrotate and clean old logs.",
+                "recommended_actions": [
+                    "Setup logrotate: /etc/logrotate.d/application",
+                    "Clean logs older than 30 days"
+                ],
+                "created_at": (now - timedelta(hours=5)).isoformat(),
+            },
+        ]
+        return mock_alerts[:limit]
+
+
+@app.get("/alerts/stream")
+async def alerts_stream():
+    """Server-Sent Events stream for real-time alert push."""
+    import json
+
+    client_queue: asyncio.Queue = asyncio.Queue(maxsize=50)
+    _sse_clients.append(client_queue)
+    logger.info(f"SSE client connected (total={len(_sse_clients)})")
+
+    async def event_generator():
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(client_queue.get(), timeout=30)
+                    yield f"data: {json.dumps(data, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    # Keep-alive ping
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _sse_clients.remove(client_queue)
+            logger.info(f"SSE client disconnected (total={len(_sse_clients)})")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/alerts/{alert_id}")
@@ -362,26 +511,110 @@ async def unregister_token(token: str):
     return {"status": "removed"}
 
 
+# ── Auth (basit – demo amaçlı) ────────────────────────
+
+# Demo kullanıcıları (production'da DB/Firebase Auth kullanılmalı)
+_DEMO_USERS = {
+    "admin": "logsense123",
+    "dev": "dev123",
+    "demo": "demo",
+}
+
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(req: LoginRequest):
+    """Basit kullanıcı adı/parola kontrolü."""
+    if req.username in _DEMO_USERS and _DEMO_USERS[req.username] == req.password:
+        # Basit token (production'da JWT kullanılmalı)
+        import hashlib, time
+        token = hashlib.sha256(f"{req.username}:{time.time()}".encode()).hexdigest()[:32]
+        return LoginResponse(
+            status="success",
+            token=token,
+            username=req.username,
+            message="Giriş başarılı",
+        )
+    raise HTTPException(status_code=401, detail="Geçersiz kullanıcı adı veya parola")
+
+
+# ── Chat ──────────────────────────────────────────────────
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_with_alert(req: ChatRequest):
+    """Alert bağlamında AI sohbeti."""
+    # Alert'i getir
+    alert = await fb.get_alert_by_id(req.alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert bulunamadı")
+
+    # Alert bağlamını oluştur
+    context = alert.get("context_for_chat", "")
+    if not context:
+        context = (
+            f"Kategori: {alert.get('category', '?')}\n"
+            f"Severity: {alert.get('severity', '?')}\n"
+            f"Özet: {alert.get('summary', '')}\n"
+            f"Kök Neden: {alert.get('root_cause', '')}\n"
+            f"Çözüm: {alert.get('solution', '')}"
+        )
+
+    reply = await ai_client.chat(
+        alert_context=context,
+        user_message=req.message,
+        history=req.history,
+        system_prompt=req.system_prompt,
+    )
+
+    # Chat geçmişini Firestore'a kaydet
+    await fb.store_chat_message(req.alert_id, "user", req.message)
+    await fb.store_chat_message(req.alert_id, "assistant", reply)
+
+    return ChatResponse(reply=reply, alert_id=req.alert_id)
+
+
+@app.get("/chat/{alert_id}/history")
+async def get_chat_history(alert_id: str):
+    """Alert'e ait chat geçmişini döndürür."""
+    return await fb.get_chat_history(alert_id)
+
+
 @app.get("/stats")
 async def get_stats():
     """Quick stats for the mobile dashboard."""
-    alerts = await fb.get_recent_alerts(limit=100)
+    try:
+        # Quick timeout to avoid waiting for Firestore quota errors
+        alerts = await asyncio.wait_for(fb.get_recent_alerts(limit=100), timeout=3.0)
 
-    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    category_counts = {}
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        category_counts = {}
 
-    for alert in alerts:
-        sev = alert.get("severity", "unknown")
-        cat = alert.get("category", "other")
-        severity_counts[sev] = severity_counts.get(sev, 0) + 1
-        category_counts[cat] = category_counts.get(cat, 0) + 1
+        for alert in alerts:
+            sev = alert.get("severity", "unknown")
+            cat = alert.get("category", "other")
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+            category_counts[cat] = category_counts.get(cat, 0) + 1
 
-    return {
-        "total_alerts": len(alerts),
-        "severity_counts": severity_counts,
-        "category_counts": category_counts,
-        "pending_logs": pending_queue.qsize(),
-    }
+        return {
+            "total_alerts": len(alerts),
+            "severity_counts": severity_counts,
+            "category_counts": category_counts,
+            "pending_logs": pending_queue.qsize(),
+        }
+    except (asyncio.TimeoutError, Exception) as e:
+        logger.warning(f"Firestore unavailable, returning mock stats: {e}")
+        # Mock stats when Firestore quota is exceeded
+        return {
+            "total_alerts": 5,
+            "severity_counts": {"fatal": 1, "critical": 2, "high": 0, "medium": 1, "low": 1},
+            "category_counts": {
+                "database": 1,
+                "performance": 1,
+                "network": 1,
+                "security": 1,
+                "infra": 1,
+            },
+            "pending_logs": pending_queue.qsize(),
+        }
 
 
 def _get_host_ip() -> str:

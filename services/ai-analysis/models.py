@@ -1,5 +1,5 @@
 """
-Pydantic models shared across the AI Analysis service.
+Pydantic models shared across the AI Analysis service (v2).
 """
 
 from typing import Optional, List
@@ -19,34 +19,42 @@ class ParsedLog(BaseModel):
 
 
 class AnalysisResult(BaseModel):
-    """Output returned by Gemini AI analysis."""
+    """Output returned by AI analysis (v2 schema)."""
     category: str = Field(
-        ...,
-        description="Error category: database|network|auth|crash|performance|security|config|other",
+        default="unknown",
+        description="Database|Network|Auth|Performance|API|Infra|Build|Mobile|Unknown",
     )
     severity: str = Field(
-        ...,
-        description="Severity: critical|high|medium|low",
+        default="medium",
+        description="critical|high|medium|low",
     )
     confidence: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
+        default=0.5, ge=0.0, le=1.0,
         description="Confidence score 0.0-1.0",
     )
     summary: str = Field(
-        ...,
-        description="Short one-line summary of the issue",
+        default="",
+        description="Short summary of the issue (max 180 chars)",
     )
     root_cause: str = Field(
-        ...,
+        default="",
         description="Explanation of WHY this error happened",
     )
     solution: str = Field(
-        ...,
-        description="Actionable fix: immediate + long-term recommendation",
+        default="",
+        description="Actionable fix: newline-separated action items",
     )
     action_required: bool = Field(
         default=True,
         description="Whether human intervention is needed",
     )
+    # v2 fields
+    title: str = Field(default="", description="Alert title (<= 80 chars)")
+    dedupe_key: str = Field(default="", description="Deduplication key")
+    impact: str = Field(default="", description="Impact description (<= 240 chars)")
+    verification_steps: List[str] = Field(default_factory=list)
+    follow_up_questions: List[str] = Field(default_factory=list)
+    context_for_chat: str = Field(default="")
+    code_level_hints: List[str] = Field(default_factory=list)
+    detected_signals: List[str] = Field(default_factory=list)
+    assumptions: List[str] = Field(default_factory=list)

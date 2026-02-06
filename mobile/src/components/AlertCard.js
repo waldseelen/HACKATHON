@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const SEVERITY_CONFIG = {
     critical: { color: '#FF3B30', icon: 'alert-circle', bg: '#FF3B3020' },
@@ -12,8 +12,13 @@ const CATEGORY_ICONS = {
     database: 'server',
     network: 'wifi',
     auth: 'lock-closed',
-    crash: 'skull',
     performance: 'speedometer',
+    api: 'cloud',
+    infra: 'hardware-chip',
+    build: 'construct',
+    mobile: 'phone-portrait',
+    unknown: 'code-slash',
+    crash: 'skull',
     security: 'shield',
     config: 'settings',
     other: 'code-slash',
@@ -64,7 +69,7 @@ export default function AlertCard({ alert, onPress }) {
             </View>
 
             <Text style={styles.summary} numberOfLines={2}>
-                {alert.summary || 'No summary available'}
+                {alert.title || alert.summary || 'Özet yok'}
             </Text>
 
             <View style={styles.footer}>
@@ -101,11 +106,18 @@ const styles = StyleSheet.create({
         marginHorizontal: 16,
         marginVertical: 6,
         borderLeftWidth: 4,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
         elevation: 4,
+        ...Platform.select({
+            web: {
+                boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.3)',
+            },
+            default: {
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.3,
+                shadowRadius: 4,
+            },
+        }),
     },
     header: {
         flexDirection: 'row',

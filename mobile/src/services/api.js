@@ -1,25 +1,58 @@
 /**
- * LogSense AI – API Service
+ * LogSense AI – API Service (v2)
  * Handles all communication with the backend.
+ * Includes: alerts, stats, push tokens, chat, login
  */
 
-import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // Auto-detect backend URL in development
 const getApiUrl = () => {
     if (__DEV__) {
-        // Expo Go: use the dev server host IP
-        const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
-        if (debuggerHost) {
-            return `http://${debuggerHost}:8000`;
+        try {
+            const Constants = require('expo-constants').default;
+            const debuggerHost = Constants.expoConfig?.hostUri?.split(':')[0];
+            if (debuggerHost) {
+                return `http://${debuggerHost}:8000`;
+            }
+        } catch {
+            // Web or Constants unavailable
+        }
+        // Web dev: same host, different port
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+            const host = window.location.hostname;
+            return `http://${host}:8000`;
         }
     }
-    // Fallback / production - use your machine's local IP
-    // Get QR code with: curl http://localhost:8000/qr -o qr.png
     return 'http://10.200.124.242:8000';
 };
 
 const API_URL = getApiUrl();
+
+// ── Auth ─────────────────────────────────────────────────
+
+/**
+ * Login with username/password.
+ */
+export async function login(username, password) {
+    try {
+        const response = await fetch(`${API_URL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('login error:', error);
+        throw error;
+    }
+}
+
+// ── Alerts ───────────────────────────────────────────────
 
 /**
  * Fetch recent alerts from the backend.
@@ -69,6 +102,8 @@ export async function fetchStats() {
     }
 }
 
+// ── Push Tokens ──────────────────────────────────────────
+
 /**
  * Register Expo push token with the backend.
  */
@@ -92,6 +127,49 @@ export async function registerPushToken(token, deviceName = 'unknown') {
         throw error;
     }
 }
+
+// ── Chat ─────────────────────────────────────────────────
+
+/**
+ * Send a chat message about an alert. Returns AI reply.
+ */
+export async function sendChatMessage(alertId, message, history = null) {
+    try {
+        const body = { alert_id: alertId, message };
+        if (history) body.history = history;
+
+        const response = await fetch(`${API_URL}/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('sendChatMessage error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Fetch chat history for an alert.
+ */
+export async function fetchChatHistory(alertId) {
+    try {
+        const response = await fetch(`${API_URL}/chat/${alertId}/history`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('fetchChatHistory error:', error);
+        throw error;
+    }
+}
+
+// ── Logs ─────────────────────────────────────────────────
 
 /**
  * Fetch recent logs.
