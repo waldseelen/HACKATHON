@@ -1,15 +1,10 @@
 # ============================================================
-# LogSense AI v2 – Docker Compose
-# Optimized single-backend architecture
-# Log → DeepSeek AI → Push Notification → Next.js Mobile App
+# LogSense AI – Docker Compose (PRODUCTION)
+# Optimized for production deployment
 # ============================================================
 
 services:
 
-  # ========================
-  # BACKEND (All-in-one)
-  # Ingestion + AI Analysis + Push Notification + SSE
-  # ========================
   backend:
     build:
       context: ./backend
@@ -26,28 +21,32 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-r1-0528:free}
       BATCH_WINDOW_SECONDS: "30"
-      MAX_BATCH_SIZE: "3"
+      MAX_BATCH_SIZE: "5"
       ENABLE_DOCKER_WATCHER: "true"
       HOST_IP: ${HOST_IP}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
-    restart: unless-stopped
+      LOG_LEVEL: "WARNING"
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+    restart: always
     deploy:
       resources:
         limits:
           memory: 1G
           cpus: "1.0"
+        reservations:
+          memory: 256M
+          cpus: "0.25"
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ========================
-  # FRONTEND (Next.js)
-  # Mobile-first web app
-  # ========================
   frontend:
     build:
       context: ./mobile_nextjs
@@ -56,30 +55,25 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://backend:8000}
+      NODE_ENV: production
     depends_on:
       backend:
         condition: service_healthy
-    restart: unless-stopped
-
-  # ========================
-  # TEST LOG GENERATOR
-  # Run with: docker compose --profile test up
-  # ========================
-  log-generator:
-    build:
-      context: ./test
-      dockerfile: Dockerfile.v2
-    container_name: logsense-test-generator
-    environment:
-      INGESTION_URL: http://backend:8000
-      LOGS_PER_SECOND: "2"
-    depends_on:
-      backend:
-        condition: service_healthy
-    profiles:
-      - test
-    restart: unless-stopped
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+        reservations:
+          memory: 128M
+          cpus: "0.1"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   default:

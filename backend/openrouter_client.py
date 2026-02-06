@@ -216,10 +216,19 @@ class OpenRouterClient:
 
     # ── Chat ──────────────────────────────────────────────
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=3, max=30),
+        retry=retry_if_exception_type((EmptyChoicesError, RateLimitError, ConnectionError, TimeoutError)),
+        before_sleep=lambda rs: logger.warning(
+            f"Chat retry #{rs.attempt_number} — bekliyor…"
+        ),
+    )
     async def chat(self, alert_context: str, user_message: str, history: list[dict] | None = None, system_prompt: str | None = None) -> str:
         """
         Kullanıcının bir alert hakkında sohbet etmesini sağlar.
         Kısa, teknik, uygulanabilir yanıtlar döndürür.
+        Retry mekanizması ile rate limit ve boş yanıt durumlarında otomatik tekrar dener.
         """
         if not self._ready:
             return "AI servisi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin."
@@ -243,16 +252,36 @@ class OpenRouterClient:
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1024,
+                timeout=30,
             )
 
-            if not response.choices or not response.choices[0].message.content:
-                return "AI yanıt üretemedi. Rate limit olabilir — biraz sonra tekrar deneyin."
+            # Boş choices koruması — retry tetikler
+            if not response.choices:
+                self._last_status = "chat_empty_response"
+                self._rate_limit_signals.append("chat_empty_choices")
+                raise EmptyChoicesError("Chat: response.choices is empty/null")
 
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content
+            if not content or not content.strip():
+                self._last_status = "chat_empty_content"
+                self._rate_limit_signals.append("chat_empty_content")
+                raise EmptyChoicesError("Chat: response content is empty")
 
+            self._last_status = "chat_success"
+            return content.strip()
+
+        except (EmptyChoicesError, RateLimitError):
+            self._retry_count_used += 1
+            raise
         except Exception as e:
+            err_str = str(e).lower()
+            if "429" in err_str or "rate" in err_str or "queue" in err_str or "limit" in err_str:
+                self._last_status = "chat_rate_limited"
+                self._rate_limit_signals.append("chat_429")
+                self._retry_count_used += 1
+                raise RateLimitError(str(e))
             logger.error(f"Chat failed: {e}")
-            return f"Chat hatası: Lütfen tekrar deneyin."
+            return "Chat hatası: Lütfen tekrar deneyin."
 
     # ── Yardımcılar ───────────────────────────────────────
 

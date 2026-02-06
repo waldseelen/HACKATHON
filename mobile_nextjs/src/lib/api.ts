@@ -4,11 +4,16 @@ import type { Alert, ChatResponse, HealthResponse, LoginResponse, Stats } from '
 
 function getApiUrl(): string {
     if (typeof window === 'undefined') {
-        return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const url = process.env.NEXT_PUBLIC_API_URL;
+        if (!url) {
+            console.warn('[LogSense] NEXT_PUBLIC_API_URL not set, falling back to localhost:8000');
+        }
+        return url || 'http://localhost:8000';
     }
     if (process.env.NEXT_PUBLIC_API_URL) {
         return process.env.NEXT_PUBLIC_API_URL;
     }
+    // In browser, derive from current hostname (works for dev & same-host deploy)
     return `http://${window.location.hostname}:8000`;
 }
 
@@ -25,7 +30,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const res = await fetch(`${API}${path}`, {
         ...options,
         headers,
-        signal: options?.signal ?? AbortSignal.timeout(15000),
+        signal: options?.signal ?? AbortSignal.timeout(30000),
     });
 
     if (!res.ok) {
@@ -51,7 +56,10 @@ export async function login(username: string, password: string): Promise<LoginRe
 /* ── Alerts ─────────────────────────────────────────────── */
 
 export async function fetchAlerts(limit = 50): Promise<Alert[]> {
-    return request<Alert[]>(`/alerts?limit=${limit}`);
+    const res = await request<{ data: Alert[]; total: number; has_more: boolean } | Alert[]>(`/alerts?limit=${limit}`);
+    // Support both paginated and legacy response formats
+    if (Array.isArray(res)) return res;
+    return res.data;
 }
 
 export async function fetchAlertById(alertId: string): Promise<Alert> {
@@ -80,6 +88,7 @@ export async function sendChatMessage(
     return request<ChatResponse>('/chat', {
         method: 'POST',
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(50000), // Chat AI yanıtı için 50s timeout
     });
 }
 

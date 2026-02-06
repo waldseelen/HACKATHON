@@ -2,14 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# System deps — cached layer
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
     rm -rf /var/lib/apt/lists/*
 
+# Python deps — cached unless requirements.txt changes
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# App code — only this layer changes on code edits
+COPY *.py .
 
 EXPOSE 8000
 

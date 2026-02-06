@@ -1,6 +1,6 @@
 # LogSense AI v2
 
-Docker container log'larından ERROR/WARN yakalayıp, Deepseek AI ile analiz edip, Expo Go mobil uygulamaya push notification gönderen sistem.
+Docker container log'larından ERROR/WARN yakalayıp, DeepSeek AI (OpenRouter) ile analiz edip, Next.js mobil web uygulamasına real-time push eden sistem.
 
 ## Mimari
 
@@ -67,103 +67,83 @@ curl -X POST http://localhost:8000/ingest \
 |----------|--------|----------|
 | `/health` | GET | Sistem sağlık kontrolü |
 | `/ingest` | POST | Tek log gönder |
-| `/ingest/batch` | POST | Toplu log gönder |
-| `/alerts` | GET | Son alertleri listele (mobil için) |
+| `/ingest/batch` | POST | Toplu log gönder (max 500) |
+| `/alerts` | GET | Son alertleri listele (pagination destekli) |
 | `/alerts/{id}` | GET | Alert detayı |
+| `/alerts/stream` | GET | SSE real-time alert stream |
 | `/logs/recent` | GET | Son loglar |
-| `/register-token` | POST | Expo push token kaydet |
+| `/register-token` | POST | Push token kaydet |
 | `/stats` | GET | Dashboard istatistikleri |
+| `/auth/login` | POST | Kullanıcı girişi |
+| `/chat` | POST | Alert hakkında AI sohbet |
+| `/chat/{id}/history` | GET | Sohbet geçmişi |
+| `/qr` | GET | Backend URL QR kodu |
+| `/docs` | GET | Swagger/OpenAPI dokümantasyonu |
 
 ## Gereksinimler
 
 - Docker & Docker Compose
-- Node.js 18+ (mobil için)
-- Expo Go (telefon uygulaması)
-- Gemini API Key
+- Node.js 18+ (frontend geliştirme için)
 - Firebase projesi (Firestore + FCM)
-- `alerts` collection - AI analysis results
+- OpenRouter API Key ([openrouter.ai](https://openrouter.ai))
 
-## API Endpoints
+## Güvenlik Özellikleri
 
-### Log Ingestion (port 8000)
+- **Rate Limiting**: IP bazlı istek sınırlaması (100 req/dk)
+- **Log Sanitization**: API key, token, şifre, JWT, kredi kartı gibi hassas verilerin otomatik maskelenmesi
+- **CORS**: Yapılandırılabilir origin kısıtlaması
+- **Error Boundary**: Frontend crash koruması
+- **Production Error Handler**: Debug bilgilerinin production'da gizlenmesi
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/ingest` | Submit a single log entry |
-| `POST` | `/ingest/batch` | Submit multiple log entries |
-| `GET` | `/logs/recent` | Get recent ingested logs |
-| `GET` | `/alerts` | Get recent AI analysis alerts |
-| `GET` | `/health` | Service health check |
+## Production Deployment
 
-### Request: POST /ingest
+```bash
+# Production config ile çalıştır
+docker compose -f docker-compose.prod.yml up -d --build
 
-```json
-{
-  "log": "[2026-02-06 14:23:45] ERROR api-gateway: Connection pool exhausted",
-  "source": "test",
-  "container": "api-gateway-1"
-}
-```
-
-### Response
-
-```json
-{
-  "status": "ingested",
-  "log_id": "abc123",
-  "stored": true
-}
-```
-
-### Alert Format (AI Analysis Output)
-
-```json
-{
-  "id": "abc123",
-  "category": "database",
-  "severity": "high",
-  "confidence": 0.92,
-  "summary": "Database connection pool exhausted due to query backlog",
-  "root_cause": "Slow queries holding connections, pool size insufficient.",
-  "solution": "Restart service to reset. Long-term: optimize queries, increase pool.",
-  "action_required": true
-}
+# Resource limitleri, log rotation ve güvenlik ayarları dahil
 ```
 
 ## Proje Yapısı
 
 ```
 HACKATHON/
-├── docker-compose.yml          # Tek backend + test generator
+├── docker-compose.yml          # Development ortamı
+├── docker-compose.prod.yml     # Production ortamı (resource limits, log rotation)
 ├── .env                        # Environment variables
+├── .env.example                # Örnek env dosyası
 ├── firebase-credentials.json   # Firebase service account
 ├── backend/                    # FastAPI monolith
-│   ├── main.py                 # API + background worker
-│   ├── config.py               # Settings
+│   ├── main.py                 # API + background worker + rate limiting
+│   ├── config.py               # Pydantic settings
+│   ├── constants.py            # Merkezi sabitler
 │   ├── models.py               # Pydantic models
 │   ├── log_parser.py           # Log parsing + fingerprinting
+│   ├── openrouter_client.py    # DeepSeek AI (OpenRouter) client
 │   ├── firebase_service.py     # Firestore operations
-│   ├── push_service.py         # Expo push notifications
+│   ├── push_service.py         # Push notifications
 │   ├── Dockerfile
 │   └── requirements.txt
-├── mobile/                     # Expo Go React Native app
-│   ├── App.js                  # Entry point + navigation
-│   ├── app.json                # Expo config
-│   ├── package.json
-│   └── src/
-│       ├── screens/
-│       │   ├── AlertsScreen.js
-│       │   └── AlertDetailScreen.js
-│       ├── components/
-│       │   └── AlertCard.js
-│       ├── services/
-│       │   └── api.js
-│       └── utils/
-│           └── notifications.js
+├── mobile_nextjs/              # Next.js mobile-first web app
+│   ├── src/
+│   │   ├── app/                # Next.js app router
+│   │   ├── components/         # React components + ErrorBoundary
+│   │   ├── lib/                # API client, auth, utils
+│   │   └── types/              # TypeScript type definitions
+│   ├── Dockerfile
+│   └── package.json
+├── services/                   # (Legacy) Microservices – artık kullanılmıyor
+│   └── ...                     # Monolith mimarisine geçildi
 └── test/
-    ├── log_generator_v2.py
+    ├── log_generator_v2.py     # Test log üretici
     └── Dockerfile.v2
 ```
+
+## Mimari Kararlar
+
+Bu proje **monolith mimari** kullanmaktadır (`backend/` dizini).
+`services/` dizinindeki microservice kodu eski versiyondandır ve aktif olarak kullanılmamaktadır.
+Tüm iş mantığı (ingestion, AI analizi, push notification, SSE) `backend/main.py` içinde birleştirilmiştir.
 
 ## License
 

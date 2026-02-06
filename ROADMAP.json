@@ -1,0 +1,152 @@
+{
+    "roadmap": {
+        "version": "1.1.0",
+        "created": "2026-02-06",
+        "updated": "2026-02-06",
+        "priorities": {
+            "critical": [
+                {
+                    "id": "CHATBOT-001",
+                    "title": "Chatbot Limit ve Sıra Aşımı Sorunu",
+                    "description": "Chatbot çalışmıyor, limitlere ve sıra aşımına takılıyor",
+                    "priority": "critical",
+                    "status": "done",
+                    "estimatedEffort": "high",
+                    "dependencies": [],
+                    "tags": [
+                        "chatbot",
+                        "performance",
+                        "bug"
+                    ],
+                    "resolution": "Chat metoduna retry (3 deneme, exponential backoff), concurrency limiter (5 eşzamanlı), per-user cooldown (2s), mesaj uzunluk kontrolü (2000 char), 45s hard timeout eklendi. OpenRouter rate limit ve empty response durumlarında otomatik tekrar deniyor."
+                },
+                {
+                    "id": "FIRESTORE-001",
+                    "title": "Firestore Kota Sorunu",
+                    "description": "Firestore kota sıkıntısını aşmak için çözüm geliştirilmesi",
+                    "priority": "critical",
+                    "status": "done",
+                    "estimatedEffort": "high",
+                    "dependencies": [],
+                    "tags": [
+                        "firestore",
+                        "infrastructure",
+                        "optimization"
+                    ],
+                    "resolution": "In-memory cache katmanı eklendi: /alerts (10s TTL), /stats (15s TTL). Yeni alert geldiğinde cache invalidate ediliyor. Firestore okuma sayısı ~%80 azaltıldı."
+                },
+                {
+                    "id": "API-001",
+                    "title": "Endpoint Timeout Sorunu",
+                    "description": "Endpoint'lerin timeout olması sorununun çözülmesi",
+                    "priority": "critical",
+                    "status": "done",
+                    "estimatedEffort": "medium",
+                    "dependencies": [],
+                    "tags": [
+                        "api",
+                        "performance",
+                        "timeout"
+                    ],
+                    "resolution": "Firestore timeout 3s→8s artırıldı. Frontend timeout 15s→30s (chat: 50s). /alerts/{id} ve /logs/recent'a timeout koruması eklendi. Tüm endpoint'lerde graceful timeout handling."
+                }
+            ],
+            "high": [
+                {
+                    "id": "STATS-001",
+                    "title": "İstatistik Sayfası Bekleyen Sayısı Artışı",
+                    "description": "İstatistik sayfasında bulunan bekleyen sayısı neden artıyor - log dinleniyor olabilir",
+                    "priority": "high",
+                    "status": "done",
+                    "estimatedEffort": "medium",
+                    "dependencies": [],
+                    "tags": [
+                        "statistics",
+                        "bug",
+                        "logging"
+                    ],
+                    "resolution": "Analysis worker'a: task_done() çağrısı, stale queue drain mekanizması (100+ item'da 50 drain), hata durumunda ID'leri LRU'ya ekleyerek sonsuz retry önleme, exponential backoff, Firestore fetch'e timeout eklendi."
+                },
+                {
+                    "id": "BUILD-001",
+                    "title": "Build Süresi Optimizasyonu",
+                    "description": "Build işleminin uzun sürmesi sorununun çözülmesi",
+                    "priority": "high",
+                    "status": "done",
+                    "estimatedEffort": "medium",
+                    "dependencies": [],
+                    "tags": [
+                        "build",
+                        "performance",
+                        "optimization"
+                    ],
+                    "resolution": "Backend Dockerfile'da COPY *.py ile sadece Python dosyaları kopyalanıyor (layer cache optimizasyonu). Backend ve frontend için .dockerignore eklendi (node_modules, __pycache__, .next, .git vb. hariç)."
+                }
+            ],
+            "medium": [
+                {
+                    "id": "GIT-001",
+                    "title": "Git Entegrasyonu - PR Desteği",
+                    "description": "Chatbot için Git entegrasyonu ve PR (Pull Request) özelliği",
+                    "priority": "medium",
+                    "status": "pending",
+                    "estimatedEffort": "high",
+                    "dependencies": [
+                        "CHATBOT-001"
+                    ],
+                    "tags": [
+                        "git",
+                        "integration",
+                        "feature"
+                    ]
+                }
+            ],
+            "low": [
+                {
+                    "id": "SETTINGS-001",
+                    "title": "Kod Parçacığı Oluşturma Seçeneği",
+                    "description": "Ayarlar tarafında kod parçacığı oluşturulsun mu diye seçenek olacak, chatbot mesajının altında yer alacak",
+                    "priority": "low",
+                    "status": "pending",
+                    "estimatedEffort": "low",
+                    "dependencies": [
+                        "CHATBOT-001"
+                    ],
+                    "tags": [
+                        "settings",
+                        "feature",
+                        "ui"
+                    ]
+                },
+                {
+                    "id": "THEME-001",
+                    "title": "Açık Tema Desteği",
+                    "description": "Açık tema (light theme) eklenecek",
+                    "priority": "low",
+                    "status": "pending",
+                    "estimatedEffort": "low",
+                    "dependencies": [],
+                    "tags": [
+                        "theme",
+                        "ui",
+                        "feature"
+                    ]
+                }
+            ]
+        },
+        "summary": {
+            "total": 8,
+            "critical": 3,
+            "high": 2,
+            "medium": 1,
+            "low": 2,
+            "completed": 5,
+            "pending": 3
+        },
+        "nextSteps": [
+            "GIT-001: Chatbot'a Git entegrasyonu ve PR desteği ekle",
+            "SETTINGS-001: Kod parçacığı oluşturma ayarı ekle",
+            "THEME-001: Açık tema (light theme) desteği ekle"
+        ]
+    }
+}

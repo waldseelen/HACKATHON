@@ -1,5 +1,6 @@
 /* ── Root Layout ────────────────────────────────────────── */
 import { CodeWatermark } from '@/components/CodeWatermark';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuthProvider } from '@/lib/auth';
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
@@ -27,11 +28,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <html lang="tr" className="dark">
             <body className="min-h-dvh">
                 <CodeWatermark />
-                <AuthProvider>
-                    <div className="app-shell relative z-10">
-                        {children}
-                    </div>
-                </AuthProvider>
+                <ErrorBoundary>
+                    <AuthProvider>
+                        <div className="app-shell relative z-10">
+                            {children}
+                        </div>
+                    </AuthProvider>
+                </ErrorBoundary>
             </body>
         </html>
     );
