@@ -7,52 +7,66 @@ module.exports = {
     theme: {
         extend: {
             colors: {
-                brand: {
-                    50: '#ededff',
-                    100: '#dddcff',
-                    200: '#bfbbff',
-                    300: '#9c95ff',
-                    400: '#7d73ff',
-                    500: '#6C63FF',
-                    600: '#5a4fff',
-                    700: '#4a3de6',
-                    800: '#3c32b8',
-                    900: '#332d91',
+                border: 'rgb(var(--border) / <alpha-value>)',
+                input: 'rgb(var(--input) / <alpha-value>)',
+                ring: 'rgb(var(--ring) / <alpha-value>)',
+                background: 'rgb(var(--background) / <alpha-value>)',
+                foreground: 'rgb(var(--foreground) / <alpha-value>)',
+                primary: {
+                    DEFAULT: 'rgb(var(--primary) / <alpha-value>)',
+                    foreground: 'rgb(var(--primary-foreground) / <alpha-value>)',
                 },
-                surface: {
-                    0: '#000000',
-                    50: '#0a0a0a',
-                    100: '#111111',
-                    200: '#1a1a1a',
-                    300: '#222222',
-                    400: '#2a2a2a',
-                    500: '#333333',
-                    600: '#444444',
-                    700: '#555555',
-                    800: '#888888',
-                    900: '#aaaaaa',
+                secondary: {
+                    DEFAULT: 'rgb(var(--secondary) / <alpha-value>)',
+                    foreground: 'rgb(var(--secondary-foreground) / <alpha-value>)',
+                },
+                destructive: {
+                    DEFAULT: 'rgb(var(--destructive) / <alpha-value>)',
+                    foreground: 'rgb(var(--destructive-foreground) / <alpha-value>)',
+                },
+                warning: {
+                    DEFAULT: 'rgb(var(--warning) / <alpha-value>)',
+                    foreground: 'rgb(var(--warning-foreground) / <alpha-value>)',
+                },
+                muted: {
+                    DEFAULT: 'rgb(var(--muted) / <alpha-value>)',
+                    foreground: 'rgb(var(--muted-foreground) / <alpha-value>)',
+                },
+                accent: {
+                    DEFAULT: 'rgb(var(--accent) / <alpha-value>)',
+                    foreground: 'rgb(var(--accent-foreground) / <alpha-value>)',
+                },
+                popover: {
+                    DEFAULT: 'rgb(var(--popover) / <alpha-value>)',
+                    foreground: 'rgb(var(--popover-foreground) / <alpha-value>)',
+                },
+                card: {
+                    DEFAULT: 'rgb(var(--card) / <alpha-value>)',
+                    foreground: 'rgb(var(--card-foreground) / <alpha-value>)',
                 },
                 severity: {
-                    critical: '#FF3B30',
-                    high: '#FF9500',
-                    medium: '#FFCC00',
-                    low: '#34C759',
+                    fatal: 'rgb(var(--severity-fatal) / <alpha-value>)',
+                    critical: 'rgb(var(--severity-critical) / <alpha-value>)',
+                    warn: 'rgb(var(--severity-warn) / <alpha-value>)',
                 },
             },
             fontFamily: {
                 sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
                 mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
             },
+            borderRadius: {
+                lg: 'var(--radius)',
+                md: 'calc(var(--radius) - 2px)',
+                sm: 'calc(var(--radius) - 4px)',
+            },
             animation: {
                 'slide-up': 'slideUp 0.3s ease-out',
-                'slide-down': 'slideDown 0.3s ease-out',
                 'fade-in': 'fadeIn 0.2s ease-out',
                 'pulse-dot': 'pulseDot 2s infinite',
                 'shimmer': 'shimmer 1.5s infinite',
             },
             keyframes: {
                 slideUp: { '0%': { transform: 'translateY(12px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
-                slideDown: { '0%': { transform: 'translateY(-12px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
                 fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
                 pulseDot: { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.3' } },
                 shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },

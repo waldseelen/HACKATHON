@@ -148,3 +148,20 @@ class AnalysisResult(BaseModel):
         default_factory=list,
         description="Assumptions made during analysis",
     )
+    # Cascade / Runbook fields (v3)
+    is_cascade: bool = Field(
+        default=False,
+        description="Whether this alert is part of a cascade failure",
+    )
+    cascade_type: Optional[str] = Field(
+        default=None,
+        description="Type of cascade failure detected",
+    )
+    runbook_id: Optional[str] = Field(
+        default=None,
+        description="Associated recovery runbook ID",
+    )
+    recommended_actions: List[str] = Field(
+        default_factory=list,
+        description="Ordered recovery actions (from runbook or AI)",
+    )

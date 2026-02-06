@@ -12,11 +12,17 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Firebase
-    firebase_credentials_path: str = "/app/firebase-credentials.json"
-    firebase_project_id: str = ""  # MUST be set via env var FIREBASE_PROJECT_ID
+    # SQLite
+    sqlite_db_path: str = "/app/data/logsense.db"
 
-    # OpenRouter AI (DeepSeek R1)
+    # AI Provider: "perplexity" or "openrouter"
+    ai_provider: str = "perplexity"
+
+    # Perplexity AI (Primary)
+    perplexity_api_key: str = ""
+    perplexity_model: str = "sonar"
+
+    # OpenRouter (Fallback)
     openrouter_api_key: str = ""
     openrouter_model: str = "deepseek/deepseek-r1-0528:free"
 
@@ -38,19 +44,18 @@ class Settings(BaseSettings):
     # Docker watcher
     enable_docker_watcher: bool = True
 
-    @field_validator("firebase_project_id")
-    @classmethod
-    def validate_firebase_project_id(cls, v: str) -> str:
-        if not v:
-            print("FATAL: FIREBASE_PROJECT_ID environment variable must be set!", file=sys.stderr)
-            sys.exit(1)
-        return v
-
     @field_validator("openrouter_api_key")
     @classmethod
     def validate_openrouter_api_key(cls, v: str) -> str:
         if not v:
-            print("WARNING: OPENROUTER_API_KEY is empty – AI analysis will NOT work!", file=sys.stderr)
+            print("WARNING: OPENROUTER_API_KEY is empty", file=sys.stderr)
+        return v
+
+    @field_validator("perplexity_api_key")
+    @classmethod
+    def validate_perplexity_api_key(cls, v: str) -> str:
+        if not v:
+            print("WARNING: PERPLEXITY_API_KEY is empty", file=sys.stderr)
         return v
 
     @property

@@ -1,16 +1,17 @@
 FROM node:20-alpine AS base
 
-# Dependencies
+# Dependencies (all deps needed for build)
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+RUN npm ci
 
 # Build
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # Runner

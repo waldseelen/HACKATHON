@@ -17,7 +17,7 @@ import re
 import hashlib
 from typing import Optional, List
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError as OpenAIRateLimitError, APIStatusError
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -114,23 +114,26 @@ class RateLimitError(Exception):
 class OpenRouterClient:
     """OpenRouter AI wrapper — geliştirilmiş retry ve yeni output schema."""
 
-    def __init__(self, api_key: str, model_name: str = "deepseek/deepseek-r1-0528:free"):
+    def __init__(self, api_key: str, model_name: str = "deepseek/deepseek-r1-0528:free", base_url: str = "https://openrouter.ai/api/v1"):
         self._ready = False
         self._last_status = "init"
         self._retry_count_used = 0
         self._rate_limit_signals: List[str] = []
+        self._base_url = base_url
+        self._provider = "perplexity" if "perplexity" in base_url else "openrouter"
 
         if not api_key:
-            logger.warning("No OpenRouter API key — AI analysis disabled")
+            logger.warning("No AI API key — AI analysis disabled")
             return
 
         self._client = AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
+            base_url=base_url,
             api_key=api_key,
+            max_retries=0,
         )
         self._model = model_name
         self._ready = True
-        logger.info(f"OpenRouter initialized: {model_name}")
+        logger.info(f"AI client initialized: provider={self._provider} model={model_name}")
 
     @property
     def is_ready(self) -> bool:
@@ -139,7 +142,7 @@ class OpenRouterClient:
     @property
     def gateway_health(self) -> dict:
         return {
-            "provider": "openrouter",
+            "provider": getattr(self, '_provider', 'openrouter'),
             "model": self._model if self._ready else "none",
             "last_call_status": self._last_status,
             "retry_count_used": self._retry_count_used,
@@ -149,11 +152,11 @@ class OpenRouterClient:
     # ── Ana analiz ────────────────────────────────────────
 
     @retry(
-        stop=stop_after_attempt(5),
-        wait=wait_exponential(multiplier=2, min=5, max=60),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=15),
         retry=retry_if_exception_type((EmptyChoicesError, RateLimitError, ConnectionError, TimeoutError)),
         before_sleep=lambda rs: logger.warning(
-            f"OpenRouter retry #{rs.attempt_number} — bekliyor…"
+            f"AI retry #{rs.attempt_number} — bekliyor…"
         ),
     )
     async def analyze(self, logs_text: str, count: int = 1) -> AnalysisResult:
@@ -203,6 +206,20 @@ class OpenRouterClient:
         except (EmptyChoicesError, RateLimitError):
             self._retry_count_used += 1
             raise
+        except OpenAIRateLimitError as e:
+            self._last_status = "rate_limited"
+            self._rate_limit_signals.append("429_openai")
+            self._retry_count_used += 1
+            raise RateLimitError(str(e))
+        except APIStatusError as e:
+            if e.status_code == 429:
+                self._last_status = "rate_limited"
+                self._rate_limit_signals.append("429_api")
+                self._retry_count_used += 1
+                raise RateLimitError(str(e))
+            self._last_status = "fail"
+            logger.error(f"OpenRouter analysis API error ({e.status_code}): {e}", exc_info=True)
+            raise
         except Exception as e:
             err_str = str(e).lower()
             if "429" in err_str or "rate" in err_str:
@@ -218,7 +235,7 @@ class OpenRouterClient:
 
     @retry(
         stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=3, max=30),
+        wait=wait_exponential(multiplier=1, min=3, max=20),
         retry=retry_if_exception_type((EmptyChoicesError, RateLimitError, ConnectionError, TimeoutError)),
         before_sleep=lambda rs: logger.warning(
             f"Chat retry #{rs.attempt_number} — bekliyor…"
@@ -235,24 +252,39 @@ class OpenRouterClient:
 
         # Kullanıcı özel system prompt verdiyse onu kullan, yoksa varsayılan
         effective_prompt = system_prompt if system_prompt else CHAT_SYSTEM_PROMPT
+        # Perplexity requires strict alternating user/assistant messages
         messages = [
-            {"role": "system", "content": effective_prompt},
-            {"role": "user", "content": f"[Alert Bağlamı]\n{alert_context}"},
+            {"role": "system", "content": f"{effective_prompt}\n\n[Alert Bağlamı]\n{alert_context}"},
         ]
 
         if history:
-            for msg in history[-10:]:  # Son 10 mesaj
-                messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-
-        messages.append({"role": "user", "content": user_message})
+            last_role = "system"
+            for msg in history[-10:]:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                # Perplexity: aynı role art arda gelemez — birleştir
+                if role == last_role and messages:
+                    messages[-1]["content"] += f"\n{content}"
+                else:
+                    messages.append({"role": role, "content": content})
+                    last_role = role
+            # Son mesaj user ise, yeni user mesajını birleştir
+            if messages[-1]["role"] == "user":
+                messages[-1]["content"] += f"\n\n{user_message}"
+            else:
+                messages.append({"role": "user", "content": user_message})
+        else:
+            messages.append({"role": "user", "content": user_message})
 
         try:
+            logger.debug(f"Chat messages ({len(messages)}): {[m.get('role') for m in messages]}")
             response = await self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
                 temperature=0.3,
                 max_tokens=1024,
-                timeout=30,
             )
 
             # Boş choices koruması — retry tetikler
@@ -265,14 +297,29 @@ class OpenRouterClient:
             if not content or not content.strip():
                 self._last_status = "chat_empty_content"
                 self._rate_limit_signals.append("chat_empty_content")
+                logger.warning(f"Chat returned empty content")
                 raise EmptyChoicesError("Chat: response content is empty")
 
             self._last_status = "chat_success"
+            logger.debug(f"Chat success: {len(content)} chars")
             return content.strip()
 
         except (EmptyChoicesError, RateLimitError):
             self._retry_count_used += 1
             raise
+        except OpenAIRateLimitError as e:
+            self._last_status = "chat_rate_limited"
+            self._rate_limit_signals.append("chat_429_openai")
+            self._retry_count_used += 1
+            raise RateLimitError(str(e))
+        except APIStatusError as e:
+            if e.status_code == 429:
+                self._last_status = "chat_rate_limited"
+                self._rate_limit_signals.append("chat_429_api")
+                self._retry_count_used += 1
+                raise RateLimitError(str(e))
+            logger.error(f"Chat API error ({e.status_code}): {e}")
+            return f"AI API hatası ({e.status_code}). Lütfen tekrar deneyin."
         except Exception as e:
             err_str = str(e).lower()
             if "429" in err_str or "rate" in err_str or "queue" in err_str or "limit" in err_str:

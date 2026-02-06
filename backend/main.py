@@ -29,6 +29,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 import qrcode
+from tenacity import RetryError
 
 from config import settings
 from constants import (
@@ -50,6 +51,7 @@ from constants import (
     CHAT_CONCURRENCY_LIMIT,
     CHAT_COOLDOWN_SECONDS,
     CHAT_MAX_MESSAGE_LENGTH,
+    CHAT_TIMEOUT_SECONDS,
     ALERTS_CACHE_TTL_SECONDS,
     STATS_CACHE_TTL_SECONDS,
 )
@@ -67,7 +69,9 @@ from models import (
 )
 from log_parser import LogParser
 from openrouter_client import OpenRouterClient
-import firebase_service as fb
+from cascade_detector import CascadeDetector
+from runbook_engine import RunbookEngine
+import sqlite_service as fb
 import push_service
 
 logger = logging.getLogger("logsense.main")
@@ -75,10 +79,21 @@ logger = logging.getLogger("logsense.main")
 # ── Shared State ──────────────────────────────────────────
 
 parser = LogParser()
-ai_client = OpenRouterClient(api_key=settings.openrouter_api_key, model_name=settings.openrouter_model)
+# AI: Use Perplexity only
+ai_client = OpenRouterClient(
+    api_key=settings.perplexity_api_key or "",
+    model_name=settings.perplexity_model,
+    base_url="https://api.perplexity.ai",
+)
+cascade_detector = CascadeDetector()
+runbook_engine = RunbookEngine()
 pending_queue: asyncio.Queue = asyncio.Queue()
 _processed_ids: collections.OrderedDict = collections.OrderedDict()  # LRU dedup cache
 worker_task = None
+
+# Last cascade detection result + runbook (for API exposure)
+_last_cascade_result: dict | None = None
+_last_runbook: dict | None = None
 
 # SSE broadcast: connected clients receive new alerts in real-time
 _sse_clients: list[asyncio.Queue] = []
@@ -89,6 +104,12 @@ _rate_limit_store: dict[str, list[float]] = {}
 # Chat concurrency control
 _chat_semaphore: asyncio.Semaphore = asyncio.Semaphore(CHAT_CONCURRENCY_LIMIT)
 _chat_cooldown: dict[str, float] = {}  # IP -> last chat request time
+
+# Worker pause mechanism — chat requests get priority over background analysis
+_worker_pause_event: asyncio.Event = asyncio.Event()  # Set = paused
+_worker_pause_until: float = 0  # timestamp when pause expires
+WORKER_ANALYSIS_DELAY = 30  # seconds between analysis calls (respect free tier rate limits)
+WORKER_CHAT_PAUSE_SECONDS = 45  # pause worker this long when a chat request comes in
 
 # In-memory cache for Firestore data
 _alerts_cache: dict[str, any] = {"data": None, "ts": 0}
@@ -201,11 +222,19 @@ async def analysis_worker():
         if not batch_ids:
             continue
 
+        # Check if worker should pause for chat priority
+        now_ts = time.time()
+        if now_ts < _worker_pause_until:
+            wait_secs = _worker_pause_until - now_ts
+            logger.info(f"Worker paused for chat priority ({wait_secs:.0f}s remaining)")
+            await asyncio.sleep(wait_secs)
+
+        # Rate limit: wait between analysis calls to avoid exhausting free tier
+        await asyncio.sleep(WORKER_ANALYSIS_DELAY)
+
         # Fetch log contents by their known IDs
         try:
-            target_logs = await asyncio.wait_for(
-                fb.get_logs_by_ids(batch_ids), timeout=FIRESTORE_TIMEOUT * 2
-            )
+            target_logs = await fb.get_logs_by_ids(batch_ids)
             if not target_logs:
                 # Mark IDs as processed even if logs not found
                 for aid in batch_ids:
@@ -235,7 +264,10 @@ async def analysis_worker():
 
 
 async def _process_batch(log_ids: list[str], logs_text: str):
-    """Analyze a batch of logs with DeepSeek AI, store alert, send push."""
+    """Analyze a batch of logs with DeepSeek AI, store alert, send push.
+    Now includes cascade failure detection and automatic runbook generation."""
+    global _last_cascade_result, _last_runbook
+
     try:
         # AI Analysis
         result: AnalysisResult = await ai_client.analyze(logs_text, count=len(log_ids))
@@ -245,6 +277,38 @@ async def _process_batch(log_ids: list[str], logs_text: str):
         logger.warning(f"AI analysis failed, using fallback: {e}")
         fallback = ai_client._fallback(logs_text)
         alert_data = fallback.model_dump()
+
+    # ── Cascade Failure Detection ─────────────────────────
+    try:
+        cascade_result = cascade_detector.analyze(logs_text)
+        if cascade_result.is_cascade:
+            alert_data["is_cascade"] = True
+            alert_data["cascade_type"] = cascade_result.cascade_type
+            alert_data["runbook_id"] = cascade_result.runbook_id
+            # Severity escalation: cascade always at least "high"
+            if cascade_result.severity == "critical":
+                alert_data["severity"] = "critical"
+            elif alert_data.get("severity") not in ("critical",):
+                alert_data["severity"] = "high"
+            # Merge detected signals
+            existing_signals = set(alert_data.get("detected_signals", []))
+            existing_signals.update(cascade_result.detected_signals)
+            alert_data["detected_signals"] = list(existing_signals)
+            # Generate runbook
+            runbook = runbook_engine.generate(cascade_result)
+            if runbook:
+                _last_runbook = runbook.to_dict()
+                alert_data["recommended_actions"] = [
+                    f"[{s.phase}] {s.title}: {s.commands[0]}" for s in runbook.steps[:5]
+                ]
+                logger.warning(
+                    f"🚨 CASCADE RUNBOOK GENERATED: {runbook.title} | "
+                    f"{runbook.estimated_recovery_minutes}min ETR | "
+                    f"{len(runbook.steps)} steps"
+                )
+            _last_cascade_result = cascade_result.to_dict()
+    except Exception as e:
+        logger.error(f"Cascade detection failed (non-critical): {e}")
 
     # Store alert (single path — no duplicate storage)
     try:
@@ -449,6 +513,10 @@ async def root():
             "POST /auth/login",
             "POST /chat",
             "GET  /chat/{alert_id}/history",
+            "GET  /cascade/status",
+            "GET  /cascade/runbook",
+            "POST /cascade/analyze",
+            "POST /cascade/clear",
             "GET  /qr",
             "GET  /qr/mobile",
         ],
@@ -464,6 +532,7 @@ async def health():
         ai=ai_client.is_ready,
         pending_logs=pending_queue.qsize(),
         ai_gateway=ai_client.gateway_health,
+        storage="sqlite",
     )
 
 
@@ -527,126 +596,20 @@ async def get_alerts(limit: int = DEFAULT_ALERTS_LIMIT, offset: int = 0):
             and _alerts_cache.get("key") == cache_key):
         return _alerts_cache["data"]
 
-    try:
-        # Quick timeout to avoid waiting for Firestore quota errors
-        all_alerts = await asyncio.wait_for(fb.get_recent_alerts(limit=limit + offset), timeout=FIRESTORE_TIMEOUT)
-        paginated = all_alerts[offset:offset + limit]
-        result = {
-            "data": paginated,
-            "total": len(all_alerts),
-            "limit": limit,
-            "offset": offset,
-            "has_more": offset + limit < len(all_alerts),
-        }
-        # Cache'e yaz
-        _alerts_cache["data"] = result
-        _alerts_cache["ts"] = now
-        _alerts_cache["key"] = cache_key
-        return result
-    except (asyncio.TimeoutError, Exception) as e:
-        logger.warning(f"Firestore unavailable, returning mock alerts: {e}")
-        # Mock alert data when Firestore quota is exceeded
-        from datetime import datetime, timedelta
-        now = datetime.utcnow()
-        mock_alerts = [
-            {
-                "id": "mock-fatal-1",
-                "title": "Database Connection Pool Exhausted",
-                "category": "database",
-                "severity": "fatal",
-                "confidence": 0.95,
-                "summary": "PostgreSQL connection pool reached max capacity (100/100). New requests timing out.",
-                "root_cause": "Connection leak in payment processing service - connections not being properly closed after transactions.",
-                "impact": "All payment transactions failing. Revenue impact: ~$50k/hour.",
-                "solution": "Restart payment-service pods immediately and deploy connection leak fix.",
-                "recommended_actions": [
-                    "kubectl rollout restart deployment payment-service",
-                    "Monitor connection count: SELECT count(*) FROM pg_stat_activity",
-                    "Deploy hotfix branch 'fix/connection-leak'"
-                ],
-                "action_required": True,
-                "verification_steps": [
-                    "Check pod restart: kubectl get pods -l app=payment-service",
-                    "Verify connection count dropped below 80"
-                ],
-                "created_at": (now - timedelta(minutes=5)).isoformat(),
-                "notified": True,
-            },
-            {
-                "id": "mock-critical-1",
-                "title": "Redis Cache Miss Rate Spike",
-                "category": "performance",
-                "severity": "critical",
-                "confidence": 0.88,
-                "summary": "Cache miss rate jumped from 2% to 45% in last 10 mins. Response times degraded.",
-                "root_cause": "Redis primary node ran out of memory (maxmemory 4GB reached). Evicting cached data.",
-                "impact": "API response times increased 3x (150ms → 450ms). User experience degraded.",
-                "solution": "Scale Redis memory to 8GB and enable memory optimization.",
-                "recommended_actions": [
-                    "Increase Redis maxmemory to 8GB",
-                    "Enable LRU eviction policy",
-                    "Review cache TTL settings"
-                ],
-                "action_required": True,
-                "created_at": (now - timedelta(minutes=12)).isoformat(),
-            },
-            {
-                "id": "mock-critical-2",
-                "title": "Nginx 502 Bad Gateway Errors",
-                "category": "network",
-                "severity": "critical",
-                "confidence": 0.92,
-                "summary": "Upstream service returning 502 errors. 15% of requests failing.",
-                "root_cause": "API service pods restarting due to OOMKill. Memory limit 512MB too low.",
-                "impact": "15% request failure rate. Customer complaints increasing.",
-                "solution": "Increase pod memory limit to 1GB and add horizontal pod autoscaling.",
-                "recommended_actions": [
-                    "Update deployment memory: resources.limits.memory=1Gi",
-                    "Add HPA: kubectl autoscale deployment api-service --min=3 --max=10"
-                ],
-                "created_at": (now - timedelta(minutes=18)).isoformat(),
-            },
-            {
-                "id": "mock-warn-1",
-                "title": "SSL Certificate Expiring Soon",
-                "category": "security",
-                "severity": "warn",
-                "confidence": 0.99,
-                "summary": "SSL certificate for api.example.com expires in 7 days.",
-                "root_cause": "Certificate auto-renewal failed due to DNS validation timeout.",
-                "impact": "Low - No immediate impact, but will cause outage if not renewed.",
-                "solution": "Manually renew certificate or fix DNS configuration for auto-renewal.",
-                "recommended_actions": [
-                    "Run: certbot renew --force-renewal",
-                    "Verify DNS records for _acme-challenge"
-                ],
-                "created_at": (now - timedelta(hours=2)).isoformat(),
-            },
-            {
-                "id": "mock-warn-2",
-                "title": "High Disk Usage on Log Volume",
-                "category": "infra",
-                "severity": "warn",
-                "confidence": 0.85,
-                "summary": "Disk usage at 82% on /var/log volume. Approaching warning threshold.",
-                "root_cause": "Log rotation not configured properly. Old logs not being cleaned.",
-                "impact": "Medium - Could fill disk in 2-3 days if trend continues.",
-                "solution": "Configure logrotate and clean old logs.",
-                "recommended_actions": [
-                    "Setup logrotate: /etc/logrotate.d/application",
-                    "Clean logs older than 30 days"
-                ],
-                "created_at": (now - timedelta(hours=5)).isoformat(),
-            },
-        ]
-        paginated_mock = mock_alerts[offset:offset + limit]
-        return {
-            "data": paginated_mock,
-            "total": len(mock_alerts),
-            "limit": limit,
-            "offset": offset,
-            "has_more": offset + limit < len(mock_alerts),
-        }
+    all_alerts = await fb.get_recent_alerts(limit=limit + offset)
+    paginated = all_alerts[offset:offset + limit]
+    result = {
+        "data": paginated,
+        "total": len(all_alerts),
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < len(all_alerts),
+    }
+    # Cache'e yaz
+    _alerts_cache["data"] = result
+    _alerts_cache["ts"] = now
+    _alerts_cache["key"] = cache_key
+    return result
 
 
 @app.get("/alerts/stream")
@@ -696,10 +659,7 @@ async def alerts_stream():
 @app.get("/alerts/{alert_id}")
 async def get_alert(alert_id: str):
     """Get a single alert by ID."""
-    try:
-        alert = await asyncio.wait_for(fb.get_alert_by_id(alert_id), timeout=FIRESTORE_TIMEOUT)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Firestore timeout — lütfen tekrar deneyin")
+    alert = await fb.get_alert_by_id(alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return alert
@@ -709,13 +669,7 @@ async def get_alert(alert_id: str):
 async def recent_logs(limit: int = DEFAULT_LOGS_LIMIT):
     """Get most recent ingested logs."""
     limit = min(max(1, limit), MAX_LOGS_LIMIT)
-    try:
-        return await asyncio.wait_for(fb.get_recent_logs(limit=limit), timeout=FIRESTORE_TIMEOUT)
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Firestore timeout — lütfen tekrar deneyin")
-    except Exception as e:
-        logger.warning(f"Logs fetch failed: {e}")
-        return []
+    return await fb.get_recent_logs(limit=limit)
 
 
 @app.post("/register-token")
@@ -791,6 +745,11 @@ async def chat_with_alert(req: ChatRequest, request: Request):
             headers={"Retry-After": "5"},
         )
 
+    # Pause background worker to give chat priority for AI API
+    global _worker_pause_until
+    _worker_pause_until = time.time() + WORKER_CHAT_PAUSE_SECONDS
+    logger.info(f"Chat request — pausing analysis worker for {WORKER_CHAT_PAUSE_SECONDS}s")
+
     # Alert'i getir
     alert = await fb.get_alert_by_id(req.alert_id)
     if not alert:
@@ -817,12 +776,25 @@ async def chat_with_alert(req: ChatRequest, request: Request):
                     history=req.history,
                     system_prompt=req.system_prompt,
                 ),
-                timeout=45,  # 45 saniye hard timeout
+                timeout=CHAT_TIMEOUT_SECONDS,
             )
         except asyncio.TimeoutError:
             raise HTTPException(
                 status_code=504,
-                detail="AI yanıt süresi aşıldı. Lütfen tekrar deneyin.",
+                detail="AI yanıt süresi aşıldı (90s). Model meşgul olabilir, lütfen tekrar deneyin.",
+            )
+        except RetryError as e:
+            logger.warning(f"Chat AI retry exhausted: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="AI servisi şu anda yanıt veremiyor (rate limit). Lütfen 30 saniye sonra tekrar deneyin.",
+                headers={"Retry-After": "30"},
+            )
+        except Exception as e:
+            logger.error(f"Chat unexpected error: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=502,
+                detail=f"AI servisi hatası: {str(e)[:200]}",
             )
 
     # Chat geçmişini Firestore'a kaydet (arka planda, hata olursa devam et)
@@ -853,44 +825,27 @@ async def get_stats():
         cached = {**_stats_cache["data"], "pending_logs": pending_queue.qsize()}
         return cached
 
-    try:
-        # Quick timeout to avoid waiting for Firestore quota errors
-        alerts = await asyncio.wait_for(fb.get_recent_alerts(limit=100), timeout=FIRESTORE_TIMEOUT)
+    alerts = await fb.get_recent_alerts(limit=100)
 
-        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-        category_counts = {}
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    category_counts = {}
 
-        for alert in alerts:
-            sev = alert.get("severity", "unknown")
-            cat = alert.get("category", "other")
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
-            category_counts[cat] = category_counts.get(cat, 0) + 1
+    for alert in alerts:
+        sev = alert.get("severity", "unknown")
+        cat = alert.get("category", "other")
+        severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        category_counts[cat] = category_counts.get(cat, 0) + 1
 
-        result = {
-            "total_alerts": len(alerts),
-            "severity_counts": severity_counts,
-            "category_counts": category_counts,
-            "pending_logs": pending_queue.qsize(),
-        }
-        # Cache'e yaz
-        _stats_cache["data"] = result
-        _stats_cache["ts"] = now
-        return result
-    except (asyncio.TimeoutError, Exception) as e:
-        logger.warning(f"Firestore unavailable, returning mock stats: {e}")
-        # Mock stats when Firestore quota is exceeded
-        return {
-            "total_alerts": 5,
-            "severity_counts": {"fatal": 1, "critical": 2, "high": 0, "medium": 1, "low": 1},
-            "category_counts": {
-                "database": 1,
-                "performance": 1,
-                "network": 1,
-                "security": 1,
-                "infra": 1,
-            },
-            "pending_logs": pending_queue.qsize(),
-        }
+    result = {
+        "total_alerts": len(alerts),
+        "severity_counts": severity_counts,
+        "category_counts": category_counts,
+        "pending_logs": pending_queue.qsize(),
+    }
+    # Cache'e yaz
+    _stats_cache["data"] = result
+    _stats_cache["ts"] = now
+    return result
 
 
 def _get_host_ip() -> str:
@@ -956,9 +911,61 @@ async def generate_mobile_qr():
         raise HTTPException(status_code=500, detail="Mobile QR generation failed")
 
 
+# ── Cascade / Runbook Endpoints ───────────────────────────
+
+@app.get("/cascade/status")
+async def cascade_status():
+    """Current cascade failure detection status and active signals."""
+    active_signals = cascade_detector.get_active_signals()
+    return {
+        "is_cascade": _last_cascade_result.get("is_cascade", False) if _last_cascade_result else False,
+        "last_detection": _last_cascade_result,
+        "active_signals": [s.value for s in active_signals],
+        "signal_count": len(active_signals),
+        "buffer_window_seconds": cascade_detector.SIGNAL_WINDOW_SECONDS,
+    }
+
+
+@app.get("/cascade/runbook")
+async def get_runbook():
+    """Get the latest generated recovery runbook."""
+    if not _last_runbook:
+        return {
+            "status": "no_runbook",
+            "message": "Henüz cascade failure tespit edilmedi veya runbook oluşturulmadı.",
+        }
+    return _last_runbook
+
+
+@app.post("/cascade/analyze")
+async def analyze_for_cascade(entry: LogEntry):
+    """Manually analyze a log text for cascade failure patterns.
+    Does NOT ingest the log — only runs cascade detection and runbook generation."""
+    result = cascade_detector.analyze(entry.log)
+    response = {
+        "detection": result.to_dict(),
+        "runbook": None,
+    }
+    if result.is_cascade:
+        runbook = runbook_engine.generate(result)
+        if runbook:
+            response["runbook"] = runbook.to_dict()
+    return response
+
+
+@app.post("/cascade/clear")
+async def clear_cascade():
+    """Clear cascade signal buffer and reset state (after incident resolved)."""
+    global _last_cascade_result, _last_runbook
+    cascade_detector.clear()
+    _last_cascade_result = None
+    _last_runbook = None
+    return {"status": "cleared", "message": "Cascade signal buffer ve runbook temizlendi."}
+
+
 @app.post("/cleanup")
 async def cleanup_data():
-    """Delete ALL logs and alerts from Firestore. For dev/testing only."""
+    """Delete ALL logs and alerts from SQLite. For dev/testing only."""
     alerts_deleted = await fb.delete_all_documents("alerts")
     logs_deleted = await fb.delete_all_documents("logs")
     _processed_ids.clear()

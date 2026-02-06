@@ -2,6 +2,7 @@
 import { CodeWatermark } from '@/components/CodeWatermark';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { AuthProvider } from '@/lib/auth';
+import { ThemeProvider } from '@/lib/theme';
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
@@ -25,15 +26,17 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
     return (
-        <html lang="tr" className="dark">
+        <html lang="tr" className="dark" suppressHydrationWarning>
             <body className="min-h-dvh">
-                <CodeWatermark />
                 <ErrorBoundary>
-                    <AuthProvider>
-                        <div className="app-shell relative z-10">
-                            {children}
-                        </div>
-                    </AuthProvider>
+                    <ThemeProvider>
+                        <CodeWatermark />
+                        <AuthProvider>
+                            <div className="app-shell relative z-10">
+                                {children}
+                            </div>
+                        </AuthProvider>
+                    </ThemeProvider>
                 </ErrorBoundary>
             </body>
         </html>

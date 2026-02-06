@@ -14,6 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # App code — only this layer changes on code edits
 COPY *.py .
 
+# SQLite data directory
+RUN mkdir -p /app/data
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

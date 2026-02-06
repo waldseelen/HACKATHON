@@ -81,15 +81,31 @@ export async function sendChatMessage(
     message: string,
     history?: { role: string; content: string }[],
     systemPrompt?: string,
+    retryCount = 0,
 ): Promise<ChatResponse> {
     const body: Record<string, unknown> = { alert_id: alertId, message };
     if (history) body.history = history;
     if (systemPrompt) body.system_prompt = systemPrompt;
-    return request<ChatResponse>('/chat', {
-        method: 'POST',
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(50000), // Chat AI yanıtı için 50s timeout
-    });
+
+    try {
+        return await request<ChatResponse>('/chat', {
+            method: 'POST',
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(200000), // 200s timeout (backend: 180s with rate-limit retries)
+        });
+    } catch (err: unknown) {
+        // Only retry on network timeouts (not server errors — backend already retries AI calls)
+        if (retryCount < 1 && err instanceof Error) {
+            const isTimeout = err.message.includes('timeout') || err.message.includes('aborted');
+
+            if (isTimeout) {
+                const delay = 3000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return sendChatMessage(alertId, message, history, systemPrompt, retryCount + 1);
+            }
+        }
+        throw err;
+    }
 }
 
 export async function fetchChatHistory(alertId: string): Promise<{ role: string; content: string; id?: string }[]> {

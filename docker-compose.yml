@@ -19,10 +19,11 @@ services:
       - "8000:8000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+      - logsense-data:/app/data
     environment:
-      FIREBASE_CREDENTIALS_PATH: /app/firebase-credentials.json
-      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      AI_PROVIDER: ${AI_PROVIDER:-perplexity}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY}
+      PERPLEXITY_MODEL: ${PERPLEXITY_MODEL:-sonar}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-deepseek/deepseek-r1-0528:free}
       BATCH_WINDOW_SECONDS: "30"
@@ -84,3 +85,6 @@ services:
 networks:
   default:
     name: logsense-network
+
+volumes:
+  logsense-data:

@@ -33,29 +33,29 @@ export default function LoginPage() {
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-xs">
                 {/* Logo */}
                 <div className="text-center mb-10">
-                    <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-brand-500/10 border border-brand-500/25
+                    <div className="w-16 h-16 mx-auto mb-3 rounded-2xl bg-primary/10 border border-primary/25
                           flex items-center justify-center">
-                        <Terminal className="w-8 h-8 text-brand-500" />
+                        <Terminal className="w-8 h-8 text-primary" />
                     </div>
-                    <h1 className="text-xl font-black tracking-tight">LogSense AI</h1>
-                    <p className="text-xs text-surface-700 mt-1 font-mono">Infrastructure Monitoring</p>
+                    <h1 className="text-xl font-black tracking-tight text-foreground">LogSense AI</h1>
+                    <p className="text-xs text-muted-foreground mt-1 font-mono">Infrastructure Monitoring</p>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-3">
-                    <div className="bg-surface-200 rounded-lg border border-surface-400 flex items-center px-3
-                          focus-within:border-brand-500/40 transition-colors">
-                        <span className="text-[13px] text-surface-600 mr-2 font-mono">$</span>
+                    <div className="bg-card rounded-lg border border-border flex items-center px-3
+                          focus-within:border-primary/40 transition-colors">
+                        <span className="text-[13px] text-muted-foreground mr-2 font-mono">$</span>
                         <input type="text" placeholder="username" value={username}
                             onChange={(e) => setUsername(e.target.value)} autoCapitalize="none" autoCorrect="off"
-                            className="flex-1 bg-transparent text-sm text-white placeholder:text-surface-600 py-3 outline-none font-mono" />
+                            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground py-3 outline-none font-mono" />
                     </div>
-                    <div className="bg-surface-200 rounded-lg border border-surface-400 flex items-center px-3
-                          focus-within:border-brand-500/40 transition-colors">
-                        <span className="text-[13px] text-surface-600 mr-2 font-mono">#</span>
+                    <div className="bg-card rounded-lg border border-border flex items-center px-3
+                          focus-within:border-primary/40 transition-colors">
+                        <span className="text-[13px] text-muted-foreground mr-2 font-mono">#</span>
                         <input type={showPw ? 'text' : 'password'} placeholder="password" value={password}
                             onChange={(e) => setPassword(e.target.value)}
-                            className="flex-1 bg-transparent text-sm text-white placeholder:text-surface-600 py-3 outline-none font-mono" />
-                        <button type="button" onClick={() => setShowPw(!showPw)} className="p-1 text-surface-600">
+                            className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground py-3 outline-none font-mono" />
+                        <button type="button" onClick={() => setShowPw(!showPw)} className="p-1 text-muted-foreground">
                             {showPw ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
                     </div>
@@ -66,7 +66,7 @@ export default function LoginPage() {
                     )}
 
                     <button type="submit" disabled={loading}
-                        className="w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-bold text-sm
+                        className="w-full py-3 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm
                        rounded-lg flex items-center justify-center gap-2
                        disabled:opacity-40 active:scale-[0.97] transition-all">
                         {loading
@@ -75,7 +75,7 @@ export default function LoginPage() {
                     </button>
                 </form>
 
-                <p className="text-center text-[10px] text-surface-600 mt-6 font-mono">
+                <p className="text-center text-[10px] text-muted-foreground mt-6 font-mono">
                     demo: admin / logsense123
                 </p>
             </motion.div>

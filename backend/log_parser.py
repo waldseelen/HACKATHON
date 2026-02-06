@@ -17,6 +17,16 @@ class LogParser:
         (re.compile(r"\b(FATAL|CRITICAL)\b", re.I), "critical"),
         (re.compile(r"\b(ERROR|ERR|Exception|Traceback)\b", re.I), "error"),
         (re.compile(r"\b(WARN|WARNING)\b", re.I), "warn"),
+        # Production cascade signals → auto-escalate to critical/error
+        (re.compile(r"\b(OOMKilled|SIGKILL|panic:\s*runtime\s*error)\b", re.I), "critical"),
+        (re.compile(r"\b(gc\s+overhead\s+limit\s+exceeded|OutOfMemoryError)\b", re.I), "critical"),
+        (re.compile(r"(disk\s+usage\s+9[5-9]%|No\s+space\s+left\s+on\s+device)", re.I), "critical"),
+        (re.compile(r"(max_connections\s+reached|certificate\s+has\s+expired)", re.I), "error"),
+        (re.compile(r"(Connection\s+refused\s*:?\s*5432|SSL\s+handshake\s+failed)", re.I), "error"),
+        (re.compile(r"(Too\s+many\s+open\s+files|HTTP\s+503\s+Service\s+Unavailable)", re.I), "error"),
+        (re.compile(r"(redis\.exceptions\.ConnectionError|kafka\.errors\.NoBrokersAvailable)", re.I), "error"),
+        (re.compile(r"(502\s+Bad\s+Gateway|upstream\s+timed?\s*out)", re.I), "error"),
+        (re.compile(r"(CrashLoopBackOff|kubectl\s+rollout\s+restart)", re.I), "warn"),
     ]
 
     _FINGERPRINT_STRIP = [

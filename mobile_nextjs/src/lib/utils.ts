@@ -9,10 +9,10 @@ export function cn(...inputs: ClassValue[]) {
 
 /* ── Severity helpers ──────────────────────────────────── */
 
-export const SEVERITY_CONFIG: Record<Severity, { color: string; bg: string; label: string; dot: string; ring: string }> = {
-    fatal: { color: 'text-red-400', bg: 'bg-red-500/10', label: 'FATAL', dot: 'bg-red-500', ring: 'ring-red-500/30' },
-    critical: { color: 'text-orange-400', bg: 'bg-orange-500/10', label: 'CRITICAL', dot: 'bg-orange-500', ring: 'ring-orange-500/30' },
-    warn: { color: 'text-yellow-400', bg: 'bg-yellow-500/10', label: 'WARN', dot: 'bg-yellow-500', ring: 'ring-yellow-500/30' },
+export const SEVERITY_CONFIG: Record<Severity, { color: string; bg: string; label: string; dot: string; ring: string; border: string }> = {
+    fatal: { color: 'text-severity-fatal', bg: 'bg-severity-fatal/10', label: 'FATAL', dot: 'bg-severity-fatal', ring: 'ring-severity-fatal/30', border: 'border-severity-fatal' },
+    critical: { color: 'text-severity-critical', bg: 'bg-severity-critical/10', label: 'CRITICAL', dot: 'bg-severity-critical', ring: 'ring-severity-critical/30', border: 'border-severity-critical' },
+    warn: { color: 'text-severity-warn', bg: 'bg-severity-warn/10', label: 'WARN', dot: 'bg-severity-warn', ring: 'ring-severity-warn/30', border: 'border-severity-warn' },
 };
 
 /** Map backend severity values to our 3-tier system */

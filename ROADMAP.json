@@ -89,7 +89,7 @@
                     "title": "Git Entegrasyonu - PR Desteği",
                     "description": "Chatbot için Git entegrasyonu ve PR (Pull Request) özelliği",
                     "priority": "medium",
-                    "status": "pending",
+                    "status": "done",
                     "estimatedEffort": "high",
                     "dependencies": [
                         "CHATBOT-001"
@@ -98,7 +98,8 @@
                         "git",
                         "integration",
                         "feature"
-                    ]
+                    ],
+                    "resolution": "Chat panelinde AI'\u0131n ilk analiz mesaj\u0131n\u0131n alt\u0131na 'Issue Olu\u015ftur' ve 'PR G\u00f6nder' butonlar\u0131 eklendi. Butonlar alert detaylar\u0131n\u0131 (severity, kategori, k\u00f6k neden, \u00e7\u00f6z\u00fcm) otomatik olarak GitHub issue/PR \u015fablonuna d\u00f6n\u00fc\u015ft\u00fcr\u00fcyor."
                 }
             ],
             "low": [
@@ -107,7 +108,7 @@
                     "title": "Kod Parçacığı Oluşturma Seçeneği",
                     "description": "Ayarlar tarafında kod parçacığı oluşturulsun mu diye seçenek olacak, chatbot mesajının altında yer alacak",
                     "priority": "low",
-                    "status": "pending",
+                    "status": "done",
                     "estimatedEffort": "low",
                     "dependencies": [
                         "CHATBOT-001"
@@ -116,21 +117,23 @@
                         "settings",
                         "feature",
                         "ui"
-                    ]
+                    ],
+                    "resolution": "Ayarlar sekmesine 'Kod \u00d6rnekleri G\u00f6ster' toggle eklendi. codeSnippetsEnabled ayar\u0131 AppSettings tipine eklendi ve localStorage'da saklan\u0131yor. Kod snippet g\u00f6r\u00fcn\u00fcrl\u00fc\u011f\u00fc bu toggle ile kontrol ediliyor."
                 },
                 {
                     "id": "THEME-001",
                     "title": "Açık Tema Desteği",
                     "description": "Açık tema (light theme) eklenecek",
                     "priority": "low",
-                    "status": "pending",
+                    "status": "done",
                     "estimatedEffort": "low",
                     "dependencies": [],
                     "tags": [
                         "theme",
                         "ui",
                         "feature"
-                    ]
+                    ],
+                    "resolution": "T\u00fcm uygulama shadcn CSS de\u011fi\u015fken sistemine ta\u015f\u0131nd\u0131. :root (a\u00e7\u0131k) ve .dark (koyu) tema de\u011fi\u015fkenleri eklendi. ThemeProvider context ile tema y\u00f6netimi, Ayarlarda Koyu/A\u00e7\u0131k toggle, t\u00fcm bile\u015fenlerde background/foreground/card/primary/muted/accent renk sistemi uyguland\u0131."
                 }
             ]
         },
@@ -140,13 +143,11 @@
             "high": 2,
             "medium": 1,
             "low": 2,
-            "completed": 5,
-            "pending": 3
+            "completed": 8,
+            "pending": 0
         },
         "nextSteps": [
-            "GIT-001: Chatbot'a Git entegrasyonu ve PR desteği ekle",
-            "SETTINGS-001: Kod parçacığı oluşturma ayarı ekle",
-            "THEME-001: Açık tema (light theme) desteği ekle"
+            "T\u00fcm 8 g\u00f6rev tamamland\u0131. Sistem production-ready."
         ]
     }
 }

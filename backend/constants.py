@@ -37,8 +37,9 @@ QR_BORDER = 4
 
 # ── Chat ─────────────────────────────────────────────────
 CHAT_CONCURRENCY_LIMIT = 5       # Max concurrent chat requests to AI
-CHAT_COOLDOWN_SECONDS = 2        # Min seconds between chat requests per user
+CHAT_COOLDOWN_SECONDS = 1        # Min seconds between chat requests per user
 CHAT_MAX_MESSAGE_LENGTH = 2000   # Max characters per chat message
+CHAT_TIMEOUT_SECONDS = 180       # Hard timeout for AI chat response (longer for rate-limited free tier)
 
 # ── In-Memory Cache ──────────────────────────────────────
 ALERTS_CACHE_TTL_SECONDS = 10    # Cache alerts for N seconds

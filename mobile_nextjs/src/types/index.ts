@@ -20,15 +20,15 @@ export interface Alert {
     root_cause: string;
     likely_root_cause?: string;
     solution: string;
-    recommended_actions?: string[];
+    recommended_actions?: string[] | string;
     action_required: boolean;
     needs_human_review?: boolean;
-    verification_steps: string[];
-    follow_up_questions: string[];
+    verification_steps: string[] | string;
+    follow_up_questions: string[] | string;
     context_for_chat: string;
-    code_level_hints: string[];
-    detected_signals: string[];
-    assumptions: string[];
+    code_level_hints: string[] | string;
+    detected_signals: string[] | string;
+    assumptions: string[] | string;
     log_ids: string[];
     raw_log?: string;
     timestamp: string;
@@ -94,5 +94,7 @@ export interface AppSettings {
     systemPrompt: string;
     pushEnabled: boolean;
     pushFatalOnly: boolean;
-    theme: 'dark' | 'midnight' | 'hacker';
+    theme: 'dark' | 'light';
+    codeSnippetsEnabled: boolean;
+    githubRepoUrl: string;
 }
