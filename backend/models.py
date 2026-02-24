@@ -59,7 +59,7 @@ class IngestResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     service: str
-    firebase: bool
+    storage: bool
     ai: bool
     pending_logs: int = 0
     ai_gateway: Optional[dict] = None

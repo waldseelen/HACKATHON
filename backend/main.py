@@ -528,11 +528,10 @@ async def health():
     return HealthResponse(
         status="healthy",
         service="logsense-ai",
-        firebase=fb.is_ready(),
+        storage=fb.is_ready(),
         ai=ai_client.is_ready,
         pending_logs=pending_queue.qsize(),
         ai_gateway=ai_client.gateway_health,
-        storage="sqlite",
     )
 
 

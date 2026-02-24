@@ -66,7 +66,7 @@ export interface LoginResponse {
 export interface HealthResponse {
     status: string;
     service: string;
-    firebase: boolean;
+    storage: boolean;
     ai: boolean;
     pending_logs: number;
     ai_gateway?: {

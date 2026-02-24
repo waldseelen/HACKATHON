@@ -21,8 +21,8 @@ MAX_LOGS_LIMIT = 100
 # ── Batch Ingestion ──────────────────────────────────────
 MAX_BATCH_SIZE = 500  # Max number of log entries in a single /ingest/batch call
 
-# ── Firestore Timeout (seconds) ─────────────────────────
-FIRESTORE_TIMEOUT = 8.0
+# ── DB / Query Timeout (seconds) ────────────────────────
+FIRESTORE_TIMEOUT = 8.0  # kept for compat; represents general query timeout
 
 # ── Rate Limiting ────────────────────────────────────────
 RATE_LIMIT_REQUESTS = 100  # requests per window
